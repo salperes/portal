@@ -1,0 +1,7 @@
+packages:
+  - 'packages/*'
+  - 'packages/modules/*'
+  - 'apps/*'
+  # Mevcut yapı (geçiş sürecinde)
+  - 'backend'
+  - 'frontend'

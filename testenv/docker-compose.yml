@@ -1,0 +1,186 @@
+version: '3.8'
+
+# ===========================================
+# MSS Portal - Test/Production Environment
+# ===========================================
+# Test: docker-compose up -d
+# Prod: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL Database
+  portal-test-db:
+    image: postgres:15-alpine
+    container_name: portal-test-db
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-portal123}
+      POSTGRES_DB: portal
+    volumes:
+      - portal-test-db-data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # Redis Cache
+  portal-test-redis:
+    image: redis:7-alpine
+    container_name: portal-test-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - portal-test-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # MinIO Object Storage
+  portal-test-minio:
+    image: minio/minio:latest
+    container_name: portal-test-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - portal-test-minio-data:/data
+    ports:
+      - "${MINIO_PORT:-9002}:9000"
+      - "${MINIO_CONSOLE_PORT:-9003}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # Backend API (NestJS)
+  portal-test-api:
+    build:
+      context: ..
+      dockerfile: testenv/Dockerfile.backend
+    container_name: portal-test-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      # Database
+      DB_HOST: portal-test-db
+      DB_PORT: 5432
+      DB_USERNAME: portal
+      DB_PASSWORD: ${DB_PASSWORD:-portal123}
+      DB_DATABASE: portal
+      # Redis
+      REDIS_HOST: portal-test-redis
+      REDIS_PORT: 6379
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production-abc123xyz}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      # LDAP
+      LDAP_URL: ${LDAP_URL:-ldap://192.168.88.200:389}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=mss,DC=local}
+      LDAP_BIND_DN: ${LDAP_BIND_DN:-CN=portalservice,OU=MSSUsers,DC=mss,DC=local}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-Ankara12!}
+      # MinIO
+      MINIO_ENDPOINT: portal-test-minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-portal-documents}
+      # RMS SSO
+      RMS_URL: ${RMS_URL:-http://host.docker.internal:8080}
+      RMS_SSO_SECRET_KEY: ${RMS_SSO_SECRET_KEY:-wn2ma6gV4GudPcZ6hWP27IX5spSal1KZCHEBl2IJuu8}
+      # File Server (SMB)
+      FILE_SERVER_HOST: ${FILE_SERVER_HOST:-192.168.88.113}
+      FILE_SERVER_DOMAIN: ${FILE_SERVER_DOMAIN:-MSS}
+      FILE_SERVER_ENCRYPTION_KEY: ${FILE_SERVER_ENCRYPTION_KEY:-portal-file-server-encryption-key-2024!}
+      FILE_SERVER_SHARES: ${FILE_SERVER_SHARES:-Public,Paylasim,Ortak}
+      # ONLYOFFICE
+      ONLYOFFICE_SERVER_URL: http://portal-test-onlyoffice
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-portal-onlyoffice-secret-key-2024}
+    ports:
+      - "${API_PORT:-3001}:3000"
+    depends_on:
+      portal-test-db:
+        condition: service_healthy
+      portal-test-redis:
+        condition: service_healthy
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # Frontend (Vite Dev Server for development)
+  portal-test-frontend:
+    build:
+      context: ..
+      dockerfile: testenv/Dockerfile.frontend
+    container_name: portal-test-frontend
+    environment:
+      VITE_API_URL: http://${HOST_IP:-localhost}:${API_PORT:-3001}/api
+      VITE_ONLYOFFICE_URL: http://${HOST_IP:-localhost}:${ONLYOFFICE_PORT:-8088}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - portal-test-api
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  portal-test-nginx:
+    image: nginx:alpine
+    container_name: portal-test-nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - portal-test-api
+      - portal-test-frontend
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+  # ONLYOFFICE Document Server
+  portal-test-onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: portal-test-onlyoffice
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-portal-onlyoffice-secret-key-2024}
+      JWT_HEADER: Authorization
+      # Allow connections from local network
+      WOPI_ENABLED: "false"
+    ports:
+      - "${ONLYOFFICE_PORT:-8080}:80"
+    volumes:
+      - portal-test-onlyoffice-data:/var/www/onlyoffice/Data
+      - portal-test-onlyoffice-logs:/var/log/onlyoffice
+    networks:
+      - portal-test-network
+    restart: unless-stopped
+
+volumes:
+  portal-test-db-data:
+  portal-test-redis-data:
+  portal-test-minio-data:
+  portal-test-onlyoffice-data:
+  portal-test-onlyoffice-logs:
+
+networks:
+  portal-test-network:
+    driver: bridge

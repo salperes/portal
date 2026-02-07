@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker --version:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+      "Bash(curl:*)",
+      "Bash(npx @nestjs/cli new:*)",
+      "Bash(npm install:*)",
+      "Bash(npm create:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(node:*)",
+      "mcp__MCP_DOCKER__browser_navigate",
+      "Bash(npm run dev:*)",
+      "Bash(findstr:*)",
+      "Bash(docker logs:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(dir:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm --version:*)",
+      "Bash(pnpm build:*)",
+      "Bash(timeout:*)",
+      "Bash(copy:*)",
+      "Bash(cmd /c copy:*)",
+      "Bash(cmd /c dir:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

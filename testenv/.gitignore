@@ -1,0 +1,5 @@
+# Environment file (contains secrets)
+.env
+
+# Docker volumes (if mounted locally)
+data/

@@ -1,0 +1,91 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+
+// Kullanıcı rolleri - yetki seviyesine göre sıralı
+export enum UserRole {
+  VIEWER = 'viewer',       // Sadece görüntüleme
+  USER = 'user',           // Standart kullanıcı (varsayılan)
+  SUPERVISOR = 'supervisor', // Yönetici/Supervisor
+  ADMIN = 'admin',         // Tam yetki
+}
+
+// Rol seviye haritası (yetki kontrolü için)
+export const RoleLevel: Record<UserRole, number> = {
+  [UserRole.VIEWER]: 1,
+  [UserRole.USER]: 2,
+  [UserRole.SUPERVISOR]: 3,
+  [UserRole.ADMIN]: 4,
+};
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'ad_username', unique: true, length: 100 })
+  adUsername: string;
+
+  @Column({ nullable: true, length: 255 })
+  email: string;
+
+  @Column({ name: 'display_name', nullable: true, length: 255 })
+  displayName: string;
+
+  @Column({ nullable: true, length: 100 })
+  department: string;
+
+  @Column({ nullable: true, length: 100 })
+  title: string;
+
+  @Column({ nullable: true, length: 50 })
+  phone: string;
+
+  @Column({ name: 'manager_id', nullable: true })
+  managerId: string;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'manager_id' })
+  manager: User;
+
+  @Column({ name: 'avatar_url', nullable: true, length: 500 })
+  avatarUrl: string;
+
+  @Column({ default: 'light', length: 20 })
+  theme: string;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: UserRole.USER,
+  })
+  role: UserRole;
+
+  @Column({ name: 'is_active', default: true })
+  isActive: boolean;
+
+  @Column({ name: 'last_login', nullable: true })
+  lastLogin: Date;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+
+  // Computed property - backward compatibility için
+  get isAdmin(): boolean {
+    return this.role === UserRole.ADMIN;
+  }
+
+  // Yetki kontrolü helper
+  hasMinimumRole(requiredRole: UserRole): boolean {
+    return RoleLevel[this.role] >= RoleLevel[requiredRole];
+  }
+}

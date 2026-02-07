@@ -1,0 +1,30 @@
+{
+  "name": "mss-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MSS Portal - Corporate Intranet Portal",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules",
+    "backend:dev": "pnpm --filter backend dev",
+    "backend:build": "pnpm --filter backend build",
+    "frontend:dev": "pnpm --filter frontend dev",
+    "frontend:build": "pnpm --filter frontend build",
+    "docker:up": "cd testenv && docker-compose up -d",
+    "docker:down": "cd testenv && docker-compose down",
+    "docker:rebuild": "cd testenv && docker-compose up -d --build",
+    "docker:logs": "cd testenv && docker-compose logs -f"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "rimraf": "^6.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

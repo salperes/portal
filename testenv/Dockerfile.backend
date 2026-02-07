@@ -1,0 +1,31 @@
+# Backend Dockerfile (Development)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Enable legacy OpenSSL provider for SMB/NTLM compatibility
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+# Install pnpm globally
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
+# Copy full workspace for pnpm to resolve dependencies
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/core/dist ./packages/core/dist/
+COPY packages/core/src ./packages/core/src/
+COPY backend/package.json ./backend/
+
+# Install all dependencies with shamefully-hoist
+RUN pnpm install --frozen-lockfile --shamefully-hoist
+
+# Copy backend source
+COPY backend/ ./backend/
+
+WORKDIR /app/backend
+
+# Expose port
+EXPOSE 3000
+
+# Use absolute path to nest CLI from root node_modules
+CMD ["/app/node_modules/.bin/nest", "start", "--watch"]

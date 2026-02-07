@@ -1,0 +1,23 @@
+{
+  "name": "@portal/file-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MSS Portal - File Server Module (SMB + ONLYOFFICE)",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "echo 'Module integrated in main apps'",
+    "clean": "echo 'No build artifacts'"
+  },
+  "dependencies": {
+    "@portal/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "zustand": "^4.0.0",
+    "lucide-react": "^0.300.0"
+  }
+}

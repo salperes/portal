@@ -1,0 +1,41 @@
+version: '3.8'
+
+# ===========================================
+# MSS Portal - Production Overrides
+# ===========================================
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  # Backend - Production build
+  portal-test-api:
+    build:
+      context: ..
+      dockerfile: testenv/Dockerfile.backend.prod
+    environment:
+      NODE_ENV: production
+    restart: always
+
+  # Frontend - Nginx ile static serve (Vite yerine)
+  portal-test-frontend:
+    build:
+      context: ..
+      dockerfile: testenv/Dockerfile.frontend.prod
+    restart: always
+
+  # Nginx - Production settings
+  portal-test-nginx:
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+    restart: always
+
+  # Database - Production settings
+  portal-test-db:
+    restart: always
+
+  # Redis - Production settings
+  portal-test-redis:
+    restart: always
+
+  # MinIO - Production settings
+  portal-test-minio:
+    restart: always
