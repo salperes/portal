@@ -147,6 +147,7 @@ export class DocumentService {
     this.logger.debug(`Callback URL for ONLYOFFICE: ${callbackUrl}`);
 
     const configWithoutToken = {
+      documentType,
       document: {
         fileType: ext.replace('.', ''),
         key: documentKey,

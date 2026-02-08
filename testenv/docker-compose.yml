@@ -165,6 +165,9 @@ services:
       JWT_HEADER: Authorization
       # Allow connections from local network
       WOPI_ENABLED: "false"
+      # Allow ONLYOFFICE to fetch documents from Docker internal network (private IPs)
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
     ports:
       - "${ONLYOFFICE_PORT:-8080}:80"
     volumes:

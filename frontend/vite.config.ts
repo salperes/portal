@@ -7,5 +7,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // Tüm ağ arayüzlerinden erişime izin ver
     port: 5173,
+    allowedHosts: true,
+  },
+  optimizeDeps: {
+    include: ['@portal/core'],
   },
 })

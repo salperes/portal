@@ -40,3 +40,6 @@ coverage/
 # Temp
 tmp/
 temp/
+
+# CAD viewer worker files (copied from node_modules during Docker build)
+frontend/public/assets/

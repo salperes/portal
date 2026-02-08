@@ -73,11 +73,18 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
   }, [showUsersList]);
 
   // Create editor container outside React's tree
-  const createEditorContainer = useCallback(() => {
+  const createEditorContainer = useCallback((): HTMLDivElement | null => {
     // Remove any existing container first
     const existing = document.getElementById(EDITOR_CONTAINER_ID);
     if (existing) {
       existing.remove();
+    }
+
+    // Find the wrapper first - if not in DOM yet, return null
+    const wrapper = document.getElementById('onlyoffice-wrapper');
+    if (!wrapper) {
+      console.warn('[DocumentViewer] Wrapper element not found in DOM');
+      return null;
     }
 
     // Create new container
@@ -85,12 +92,7 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
     container.id = EDITOR_CONTAINER_ID;
     container.style.width = '100%';
     container.style.height = '100%';
-
-    // Find the wrapper and append
-    const wrapper = document.getElementById('onlyoffice-wrapper');
-    if (wrapper) {
-      wrapper.appendChild(container);
-    }
+    wrapper.appendChild(container);
 
     return container;
   }, []);
@@ -176,22 +178,22 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
 
     // Guard: Don't initialize if we already have an editor
     if (editorRef.current) {
-      console.log('Editor already exists, skipping initialization');
       return;
     }
 
     const scriptId = 'onlyoffice-api-script';
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const initEditor = () => {
-      // Double-check: Don't initialize if editor already exists or component unmounted
-      if (editorRef.current || !mountedRef.current) {
-        console.log('Skipping editor init - already exists or unmounted');
-        return;
-      }
+    const initEditor = (retryCount = 0) => {
+      if (editorRef.current || !mountedRef.current) return;
 
-      // Create container outside React
       const container = createEditorContainer();
       if (!container) {
+        // Wrapper not in DOM yet (React portal timing) - retry up to 10 times
+        if (retryCount < 10 && mountedRef.current) {
+          retryTimer = setTimeout(() => initEditor(retryCount + 1), 100);
+          return;
+        }
         if (mountedRef.current) {
           setError('Editor container oluşturulamadı');
           setLoading(false);
@@ -202,7 +204,6 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const DocsAPI = (window as any).DocsAPI;
       if (!DocsAPI) {
-        console.error('DocsAPI is not defined on window object');
         if (mountedRef.current) {
           setError('ONLYOFFICE API yüklenemedi. Lütfen sayfayı yenileyin.');
           setLoading(false);
@@ -210,9 +211,29 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
         return;
       }
 
+      // Force canvas repaint - multiple strategies to fix black canvas
+      const forceCanvasRepaint = () => {
+        window.dispatchEvent(new Event('resize'));
+        const iframe = document.querySelector('[name="frameEditor"]') as HTMLIFrameElement;
+        if (iframe) {
+          const origDisplay = iframe.style.display;
+          iframe.style.display = 'none';
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              iframe.style.display = origDisplay || '';
+              window.dispatchEvent(new Event('resize'));
+            });
+          });
+        }
+      };
+
+      const lightRepaint = () => {
+        window.dispatchEvent(new Event('resize'));
+      };
+
       try {
-        console.log('Initializing ONLYOFFICE DocEditor with config:', config);
         const editor = new DocsAPI.DocEditor(EDITOR_CONTAINER_ID, {
+          documentType: config.documentType,
           document: config.document,
           editorConfig: config.editorConfig,
           token: config.token,
@@ -221,8 +242,11 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
           height: '100%',
           events: {
             onAppReady: () => {
-              console.log('ONLYOFFICE editor ready');
-              if (mountedRef.current) setLoading(false);
+              if (mountedRef.current) {
+                setLoading(false);
+                setTimeout(lightRepaint, 100);
+                setTimeout(lightRepaint, 500);
+              }
             },
             onError: (event: { data: string }) => {
               console.error('ONLYOFFICE error:', event);
@@ -233,6 +257,10 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
             },
             onDocumentReady: () => {
               console.log('Document loaded successfully');
+              setTimeout(lightRepaint, 100);
+              setTimeout(lightRepaint, 300);
+              setTimeout(forceCanvasRepaint, 800);
+              setTimeout(forceCanvasRepaint, 2000);
             },
           },
         });
@@ -246,49 +274,33 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
       }
     };
 
-    // Check if DocsAPI is already loaded
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((window as any).DocsAPI) {
-      console.log('DocsAPI already loaded, initializing editor');
       initEditor();
-      return;
+      return () => { if (retryTimer) clearTimeout(retryTimer); };
     }
 
-    // Load script with deduplication
     const loadScript = (): Promise<void> => {
-      // If already loading, return existing promise
-      if (scriptLoadingPromise) {
-        console.log('Script already loading, waiting...');
-        return scriptLoadingPromise;
-      }
+      if (scriptLoadingPromise) return scriptLoadingPromise;
 
-      // Check if script is already in DOM and loaded
       const existingScript = document.getElementById(scriptId) as HTMLScriptElement;
       if (existingScript) {
-        // Script exists, wait for it to load
         scriptLoadingPromise = new Promise((resolve, reject) => {
           existingScript.addEventListener('load', () => resolve());
           existingScript.addEventListener('error', () => reject(new Error('Script load failed')));
-          // Timeout in case script already loaded but DocsAPI not ready
           setTimeout(resolve, 500);
         });
         return scriptLoadingPromise;
       }
 
-      // Create and load the script
-      console.log('Loading ONLYOFFICE API from:', `${ONLYOFFICE_URL}/web-apps/apps/api/documents/api.js`);
       scriptLoadingPromise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.id = scriptId;
         script.src = `${ONLYOFFICE_URL}/web-apps/apps/api/documents/api.js`;
         script.async = true;
-        script.onload = () => {
-          console.log('ONLYOFFICE API script loaded successfully');
-          setTimeout(resolve, 100); // Small delay for DocsAPI init
-        };
-        script.onerror = (e) => {
-          console.error('Failed to load ONLYOFFICE API script:', e);
-          scriptLoadingPromise = null; // Reset so it can retry
+        script.onload = () => setTimeout(resolve, 100);
+        script.onerror = () => {
+          scriptLoadingPromise = null;
           reject(new Error('Script load failed'));
         };
         document.body.appendChild(script);
@@ -299,10 +311,7 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
 
     loadScript()
       .then(() => {
-        // Only init if still mounted and no editor exists
-        if (mountedRef.current && !editorRef.current) {
-          initEditor();
-        }
+        if (mountedRef.current && !editorRef.current) initEditor();
       })
       .catch(() => {
         if (mountedRef.current) {
@@ -310,6 +319,8 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
           setLoading(false);
         }
       });
+
+    return () => { if (retryTimer) clearTimeout(retryTimer); };
   }, [config, createEditorContainer]);
 
   const handleDownload = async () => {
@@ -452,8 +463,8 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
         </div>
       </div>
 
-      {/* Editor Container */}
-      <div className="flex-1 bg-white rounded-b-lg overflow-hidden relative">
+      {/* Editor Container - minimal CSS to avoid canvas compositing issues */}
+      <div className="flex-1 bg-white relative" style={{ minHeight: 0 }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
             <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -485,9 +496,9 @@ export function DocumentViewer({ share, path, filename, onClose }: DocumentViewe
           </div>
         )}
 
-        {/* Static wrapper for ONLYOFFICE - key forces complete recreation on mode change */}
+        {/* Static wrapper for ONLYOFFICE - absolute positioning for reliable sizing */}
         {!isTransitioning && (
-          <div key={wrapperKey} id="onlyoffice-wrapper" className="w-full h-full" />
+          <div key={wrapperKey} id="onlyoffice-wrapper" className="absolute inset-0" />
         )}
       </div>
     </div>,

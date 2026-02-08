@@ -28,7 +28,29 @@
       "Bash(git init:*)",
       "Bash(git remote add:*)",
       "Bash(git status:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: MSS Portal - Corporate intranet portal\n\nNestJS + React + PostgreSQL monorepo with:\n- Auth \\(LDAP/AD + JWT\\)\n- User management \\(4-tier roles\\)\n- Announcements \\(CRUD + categories\\)\n- File Server \\(SMB + ONLYOFFICE collaborative editing\\)\n- RMS SSO integration\n- Docker Compose dev environment\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "mcp__MCP_DOCKER__browser_wait_for",
+      "mcp__MCP_DOCKER__browser_fill_form",
+      "mcp__MCP_DOCKER__browser_click",
+      "Bash(python:*)",
+      "mcp__MCP_DOCKER__browser_close",
+      "mcp__MCP_DOCKER__browser_snapshot",
+      "mcp__MCP_DOCKER__browser_evaluate",
+      "mcp__MCP_DOCKER__browser_take_screenshot",
+      "mcp__MCP_DOCKER__browser_resize",
+      "mcp__MCP_DOCKER__browser_run_code",
+      "WebFetch(domain:192.168.104.13)",
+      "mcp__MCP_DOCKER__browser_console_messages",
+      "Bash(python3:*)",
+      "Bash(pnpm add:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(ls:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(pnpm remove:*)"
     ]
   }
 }

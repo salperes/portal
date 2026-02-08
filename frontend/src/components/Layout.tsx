@@ -8,15 +8,16 @@ import {
   Menu,
   Settings,
   Search,
-  HelpCircle,
-  Cog,
   Sun,
   Moon,
   Users,
+  FolderTree,
+  FolderKanban,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import { APP_VERSION } from '../version';
 
 const navItems = [
   { path: '/', icon: Home, label: 'Ana Sayfa' },
@@ -28,6 +29,8 @@ const navItems = [
 const adminNavItems = [
   { path: '/admin/users', icon: Users, label: 'Kullanıcı Yönetimi' },
   { path: '/admin/announcements', icon: Bell, label: 'Duyuru Yönetimi' },
+  { path: '/admin/groups', icon: FolderTree, label: 'Grup Yönetimi' },
+  { path: '/admin/projects', icon: FolderKanban, label: 'Proje Yönetimi' },
 ];
 
 export default function Layout() {
@@ -80,6 +83,7 @@ export default function Layout() {
         <Link to="/" className="flex items-center gap-2 px-3 text-white font-semibold text-sm hover:bg-white/10 h-12">
           <img src="/mss-eye.png" alt="MSS" className="w-6 h-6 object-contain" />
           MSS Portal
+          <span className="text-[10px] font-normal text-white/50 ml-0.5">v{APP_VERSION}</span>
         </Link>
 
         {/* Spacer */}
@@ -108,15 +112,9 @@ export default function Layout() {
               <Sun className="w-5 h-5 text-white/80" />
             )}
           </button>
-          <button className="w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors">
-            <Cog className="w-5 h-5 text-white/80" />
-          </button>
           <button className="w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors relative">
             <Bell className="w-5 h-5 text-white/80" />
             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-          </button>
-          <button className="w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-lg transition-colors">
-            <HelpCircle className="w-5 h-5 text-white/80" />
           </button>
 
           {/* User Avatar */}
@@ -148,7 +146,10 @@ export default function Layout() {
                   </div>
                 </div>
                 <div className="py-2">
-                  <button className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3">
+                  <button
+                    onClick={() => { navigate('/settings'); setUserMenuOpen(false); }}
+                    className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
+                  >
                     <Settings className="w-4 h-4 text-gray-400" />
                     Hesap ayarları
                   </button>
@@ -247,16 +248,8 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Bottom Section */}
-        <div className="border-t border-white/10 p-4">
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 text-sm text-red-400 hover:text-red-300 w-full px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-            <span>Çıkış Yap</span>
-          </button>
-        </div>
+        {/* Bottom spacer */}
+        <div className="border-t border-white/10 p-2" />
       </aside>
 
       {/* Main Content */}

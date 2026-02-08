@@ -9,7 +9,11 @@ import AnnouncementDetail from './pages/AnnouncementDetail';
 import Applications from './pages/Applications';
 import AnnouncementsAdmin from './pages/admin/AnnouncementsAdmin';
 import UsersAdmin from './pages/admin/UsersAdmin';
+import GroupsAdmin from './pages/admin/GroupsAdmin';
+import ProjectsAdmin from './pages/admin/ProjectsAdmin';
 import FileServer from './pages/FileServer';
+import Documents from './pages/Documents';
+import Settings from './pages/Settings';
 
 const queryClient = new QueryClient();
 
@@ -39,15 +43,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function Documents() {
-  return (
-    <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-      <h1 className="text-2xl font-bold text-gray-900 mb-4">Dökümanlar</h1>
-      <p className="text-gray-500">Dökümanlar modülü yapım aşamasında...</p>
-    </div>
-  );
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -69,6 +64,7 @@ function App() {
             <Route path="documents" element={<Documents />} />
             <Route path="applications" element={<Applications />} />
             <Route path="file-server" element={<FileServer />} />
+            <Route path="settings" element={<Settings />} />
 
             {/* Admin Routes */}
             <Route
@@ -84,6 +80,22 @@ function App() {
               element={
                 <AdminRoute>
                   <AnnouncementsAdmin />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="admin/groups"
+              element={
+                <AdminRoute>
+                  <GroupsAdmin />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="admin/projects"
+              element={
+                <AdminRoute>
+                  <ProjectsAdmin />
                 </AdminRoute>
               }
             />

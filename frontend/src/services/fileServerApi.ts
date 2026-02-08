@@ -26,6 +26,7 @@ export interface ListSharesResponse {
 }
 
 export interface DocumentConfig {
+  documentType: string;
   document: {
     fileType: string;
     key: string;
