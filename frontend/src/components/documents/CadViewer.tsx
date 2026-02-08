@@ -59,29 +59,52 @@ function patchDwgConverter() {
  * event listeners, or disconnect the ResizeObserver. We must do this manually.
  */
 function cleanupDocManager(manager: AcApDocManager, container: HTMLDivElement | null) {
-  try {
-    manager.curView?.stopAnimationLoop();
-  } catch {
-    // curView may not exist if init failed
+  const view = manager.curView;
+
+  // 1. Override onWindowResize to no-op (prevents debounced ResizeObserver crash)
+  if (view) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (view as any).onWindowResize = () => {};
+    } catch (_) { /* ignore */ }
   }
 
-  try {
-    manager.curView?.clear();
-  } catch {
-    // Ignore if already cleared
-  }
+  // 2. Stop animation loop
+  try { view?.stopAnimationLoop(); } catch (_) { /* ignore */ }
 
-  try {
-    manager.destroy();
-  } catch {
-    // Ignore
-  }
+  // 3. Remove canvas from DOM (severs ResizeObserver link)
+  if (container) container.innerHTML = '';
 
-  // Remove all child elements from container to sever DOM references.
-  // This removes the canvas and stops the ResizeObserver (ref lost in library).
-  if (container) {
-    container.innerHTML = '';
-  }
+  // 4. Dispose Three.js renderer and scene
+  try { view?.clear(); } catch (_) { /* ignore */ }
+
+  // 5. Clear singleton reference
+  try { manager.destroy(); } catch (_) { /* ignore */ }
+}
+
+/**
+ * Remove <style> elements injected by @mlightcad/cad-simple-viewer.
+ * The library injects 4-5 style tags into <head> during initialization
+ * but never removes them on destroy(). These orphaned tags corrupt
+ * Vite dev server's CSS injection system, causing Tailwind media queries
+ * to stop working (sidebar display:none despite viewport > 1024px).
+ */
+function cleanupLibraryStyles() {
+  // ID-based style tags (marker + loader)
+  ['ml-marker-style', 'ml-ccl-loader-styles'].forEach(id => {
+    document.getElementById(id)?.remove();
+  });
+  // Content-based style tags without IDs (CLI, floating input, jig preview)
+  document.querySelectorAll('style').forEach(el => {
+    const text = el.textContent || '';
+    if (
+      text.includes('.ml-cli-') ||
+      text.includes('.ml-floating-input') ||
+      text.includes('.ml-jig-preview-rect')
+    ) {
+      el.remove();
+    }
+  });
 }
 
 /**
@@ -186,7 +209,11 @@ export function CadViewer({ documentId, filename, onClose }: CadViewerProps) {
         docManagerRef.current = null;
       }
 
-      setTimeout(() => removeKeydownBlocker(), 500);
+      // Remove style tags injected by the library to prevent CSS corruption
+      cleanupLibraryStyles();
+
+      // Remove keydown blocker after a delay (library's stale listener persists)
+      setTimeout(removeKeydownBlocker, 2000);
     };
   }, [documentId, filename]);
 

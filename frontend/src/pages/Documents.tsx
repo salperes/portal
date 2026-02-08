@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText,
@@ -52,6 +52,30 @@ export default function Documents() {
   const [documentToView, setDocumentToView] = useState<{ id: string; name: string; mode: 'view' | 'edit' } | null>(null);
   const [permissionsTarget, setPermissionsTarget] = useState<{ type: 'folder' | 'document'; id: string; name: string } | null>(null);
   const [cadDocToView, setCadDocToView] = useState<{ id: string; name: string } | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Force sidebar visibility after CadViewer closes.
+  // CadViewer's library injects <style> tags that can corrupt Vite's CSS;
+  // cleanupLibraryStyles() removes them, but as a safety net we also
+  // re-assert display:block if Tailwind's media query fails to re-apply.
+  useEffect(() => {
+    if (cadDocToView === null && sidebarRef.current) {
+      const el = sidebarRef.current;
+      if (window.innerWidth >= 1024) {
+        el.style.display = 'block';
+        const timer = setTimeout(() => {
+          el.style.removeProperty('display');
+          // If Tailwind CSS recovered, removing inline style is enough.
+          // If still broken, re-apply as permanent override.
+          const computed = window.getComputedStyle(el);
+          if (computed.display === 'none' && window.innerWidth >= 1024) {
+            el.style.display = 'block';
+          }
+        }, 200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [cadDocToView]);
 
   // ─── Queries ──────────────────────────────────────────────
 
@@ -275,7 +299,7 @@ export default function Documents() {
       {/* Two-panel layout */}
       <div className="grid grid-cols-12 gap-4" style={{ minHeight: '500px' }}>
         {/* Left panel - Folder tree */}
-        <div className="col-span-3 hidden lg:block">
+        <div ref={sidebarRef} className="col-span-3 hidden lg:block">
           <DocumentsSidebar
             folders={allFolders}
             currentFolderId={currentFolderId}
