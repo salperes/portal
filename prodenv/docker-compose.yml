@@ -1,0 +1,165 @@
+name: portal
+
+services:
+  portal-db:
+    image: postgres:15-alpine
+    container_name: portal-db
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: portal
+    volumes:
+      - portal-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - portal-network
+    restart: unless-stopped
+
+  portal-redis:
+    image: redis:7-alpine
+    container_name: portal-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - portal-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - portal-network
+    restart: unless-stopped
+
+  portal-minio:
+    image: minio/minio:latest
+    container_name: portal-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - portal-minio-data:/data
+    networks:
+      - portal-network
+    restart: unless-stopped
+    # Optional (only if you need external access)
+    # ports:
+    #   - "19002:9000"
+    #   - "19003:9001"
+
+  portal-onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: portal-onlyoffice
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      JWT_HEADER: Authorization
+      WOPI_ENABLED: "false"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
+    ports:
+      - "${PORTAL_ONLYOFFICE_PORT}:80"
+    volumes:
+      - portal-onlyoffice-data:/var/www/onlyoffice/Data
+      - portal-onlyoffice-logs:/var/log/onlyoffice
+    networks:
+      - portal-network
+    restart: unless-stopped
+
+  portal-api:
+    build:
+      context: ..
+      dockerfile: prodenv/Dockerfile.backend.prod
+    container_name: portal-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NODE_OPTIONS: --openssl-legacy-provider
+      PORT: 3000
+      # Database
+      DB_HOST: portal-db
+      DB_PORT: 5432
+      DB_USERNAME: portal
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: portal
+      # Redis
+      REDIS_HOST: portal-redis
+      REDIS_PORT: 6379
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      # LDAP
+      LDAP_URL: ${LDAP_URL}
+      LDAP_BASE_DN: ${LDAP_BASE_DN}
+      LDAP_BIND_DN: ${LDAP_BIND_DN}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+      # MinIO
+      MINIO_ENDPOINT: portal-minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-portal-documents}
+      # RMS SSO
+      RMS_URL: ${RMS_URL}
+      RMS_SSO_SECRET_KEY: ${RMS_SSO_SECRET_KEY}
+      # File Server (SMB)
+      FILE_SERVER_HOST: ${FILE_SERVER_HOST}
+      FILE_SERVER_DOMAIN: ${FILE_SERVER_DOMAIN}
+      FILE_SERVER_ENCRYPTION_KEY: ${FILE_SERVER_ENCRYPTION_KEY}
+      FILE_SERVER_SHARES: ${FILE_SERVER_SHARES}
+      # ONLYOFFICE
+      ONLYOFFICE_SERVER_URL: ${PORTAL_PUBLIC_SCHEME}://${PORTAL_PUBLIC_HOST}:${PORTAL_ONLYOFFICE_PORT}
+      ONLYOFFICE_INTERNAL_API_URL: http://portal-api:3000
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+    depends_on:
+      portal-db:
+        condition: service_healthy
+      portal-redis:
+        condition: service_healthy
+    networks:
+      - portal-network
+    restart: unless-stopped
+    # Optional: publish API port for debugging only
+    # ports:
+    #   - "13001:3000"
+
+  portal-frontend:
+    build:
+      context: ..
+      dockerfile: prodenv/Dockerfile.frontend.prod
+      args:
+        VITE_API_URL: /api
+        VITE_ONLYOFFICE_URL: ${PORTAL_PUBLIC_SCHEME}://${PORTAL_PUBLIC_HOST}:${PORTAL_ONLYOFFICE_PORT}
+    container_name: portal-frontend
+    networks:
+      - portal-network
+    restart: unless-stopped
+
+  portal-nginx:
+    image: nginx:alpine
+    container_name: portal-nginx
+    ports:
+      - "${PORTAL_HTTP_PORT}:80"
+    volumes:
+      - ./nginx.portal.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - portal-api
+      - portal-frontend
+    networks:
+      - portal-network
+    restart: unless-stopped
+
+volumes:
+  portal-db-data:
+  portal-redis-data:
+  portal-minio-data:
+  portal-onlyoffice-data:
+  portal-onlyoffice-logs:
+
+networks:
+  portal-network:
+    driver: bridge

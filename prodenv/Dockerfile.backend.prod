@@ -1,0 +1,43 @@
+# Backend Dockerfile (Production) - workspace aware (pnpm)
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# SMB/NTLM compatibility (Node 20+)
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
+# Copy minimal workspace manifests for dependency install
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
+COPY backend/package.json ./backend/package.json
+COPY packages/core/package.json ./packages/core/package.json
+
+# Install only the required workspaces (with dev deps for build)
+RUN pnpm install --frozen-lockfile --prod=false --shamefully-hoist \
+  --filter backend... \
+  --filter @portal/core...
+
+# Copy sources
+COPY backend/ ./backend/
+COPY packages/core/ ./packages/core/
+
+# Build shared package and backend
+RUN pnpm -C packages/core build
+RUN pnpm -C backend build
+
+# Runtime image
+FROM node:20-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+# Copy runtime deps and built artifacts
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/core ./packages/core
+COPY --from=builder /app/backend/dist ./dist
+COPY --from=builder /app/backend/package.json ./package.json
+
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
