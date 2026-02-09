@@ -8,22 +8,22 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "import": "./dist/esm/index.js",
       "require": "./dist/index.js"
     },
     "./types": {
       "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js",
+      "import": "./dist/esm/types/index.js",
       "require": "./dist/types/index.js"
     },
     "./entities": {
       "types": "./dist/entities/index.d.ts",
-      "import": "./dist/entities/index.js",
+      "import": "./dist/esm/entities/index.js",
       "require": "./dist/entities/index.js"
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.esm.json",
     "clean": "rimraf dist",
     "dev": "tsc --watch"
   },
