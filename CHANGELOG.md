@@ -158,3 +158,100 @@ Rev. Report: (
   Degisen dosyalar: 3 (fileServerApi.ts, CadViewer.tsx, FileServer.tsx)
 )
 ---------------------------------------------------------
+Rev. ID    : 045
+Rev. Date  : 10.02.2026
+Rev. Time  : 23:30:00
+Rev. Prompt: FileServer: sol panel agac yapisi (folder tree sidebar)
+
+Rev. Report: (
+  FileServer sayfasina Documents sayfasindaki gibi iki panelli layout
+  eklendi. Sol tarafta klasor agaci, sag tarafta klasor icerigi.
+
+  fileServerStore.ts - Tree state management:
+  - treeData: Record<string, FileItem[]> (share:path key, directory-only)
+  - expandedNodes: Set<string>, treeLoading: Set<string>
+  - expandNode/collapseNode/toggleNode action'lari
+  - selectShare: browse sonucu directory'leri tree cache'e yazar
+  - navigateTo: tum ancestor path'leri auto-expand eder
+  - refresh: current path'in tree cache'ini temizler
+
+  FileServerSidebar.tsx (YENI):
+  - Recursive renderShareNode + renderFolderNode fonksiyonlari
+  - Share'ler root dugum (Server ikonu, indigo renk)
+  - Lazy-loading: expand edilince browse() ile alt klasorler yuklenir
+  - Per-node loading spinner (Loader2)
+  - Selection highlight (mavi), hover state, dark mode
+  - Stil: DocumentsSidebar ile tutarli (card, overflow-y-auto)
+
+  FileServer.tsx - Two-panel layout:
+  - Share secim gorunumu (grid kartlari) kaldirildi
+  - grid grid-cols-12 gap-4 layout (sidebar 3col, content 9col)
+  - Sidebar: hidden lg:block (mobilde gizli)
+  - Content panel: breadcrumb + toolbar + dosya listesi/grid
+  - Share secili degilken: "Sol panelden bir paylasim secin" bos durum
+  - Toolbar content panel header'ina tasindi (kompakt)
+
+  Yeni dosyalar: 1 (FileServerSidebar.tsx)
+  Degisen dosyalar: 2 (fileServerStore.ts, FileServer.tsx)
+)
+---------------------------------------------------------
+Rev. ID    : 046
+Rev. Date  : 10.02.2026
+Rev. Time  : 23:50:00
+Rev. Prompt: FileServer ve Documents two-panel layoutlarda dikey/yatay scroll desteği
+
+Rev. Report: (
+  FileServer ve Documents sayfalarina bagimsiz panel scroll desteği
+  eklendi. Icerik viewport'a sigmadigi durumda her panel kendi
+  icinde dikey ve yatay scroll yapabiliyor.
+
+  Sorun: Her iki sayfa space-y-4 wrapper ile unbounded yukseklik
+  kullaniyordu. Grid container'da minHeight: 500px vardi ama max-h
+  yoktu. Panellerde overflow kontrolu yoktu.
+
+  Cozum:
+  - Sayfa wrapper: flex flex-col + height: calc(100vh - 96px)
+    (viewport - 48px header - 48px main padding)
+  - Grid: flex-1 min-h-0 (kalan alani doldurur, shrink edebilir)
+  - Sidebar: min-h-0 overflow-hidden (ic bilesenler kendi scroll'u)
+  - Content panel: min-h-0 overflow-hidden + ic alan overflow-auto
+  - Documents.tsx ic content alanina overflow-auto eklendi
+
+  FileServer.tsx:
+  - Wrapper: space-y-4 → flex flex-col + height constraint
+  - Grid: minHeight: 500px → flex-1 min-h-0
+  - Sidebar wrapper: min-h-0 overflow-hidden
+  - Content panel: min-h-0 overflow-hidden eklendi
+
+  Documents.tsx:
+  - Wrapper: space-y-4 → flex flex-col + height constraint
+  - Grid: minHeight: 500px → flex-1 min-h-0
+  - Sidebar wrapper: min-h-0 overflow-hidden
+  - Content panel: min-h-0 overflow-hidden eklendi
+  - Ic content alan: overflow-auto eklendi (flex-1 p-4 → flex-1
+    overflow-auto p-4)
+
+  Degisen dosyalar: 2 (FileServer.tsx, Documents.tsx)
+)
+---------------------------------------------------------
+Rev. ID    : 047
+Rev. Date  : 10.02.2026
+Rev. Time  : 23:55:00
+Rev. Prompt: FileServer adini "Ortak Alan" olarak degistir, sidebar'a ekle
+
+Rev. Report: (
+  FileServer sayfasinin adi "Dosya Sunucusu"ndan "Ortak Alan"a degistirildi
+  ve sol navigasyon menusune eklendi.
+
+  Layout.tsx:
+  - Server ikonu import eklendi
+  - navItems'a { path: '/file-server', icon: Server, label: 'Ortak Alan' }
+    eklendi (Uygulamalar'dan sonra)
+
+  FileServer.tsx:
+  - Sayfa basligi: "Dosya Sunucusu" → "Ortak Alan"
+  - Bos durum metni: "Dosya Sunucusu" → "Ortak Alan"
+
+  Degisen dosyalar: 2 (Layout.tsx, FileServer.tsx)
+)
+---------------------------------------------------------

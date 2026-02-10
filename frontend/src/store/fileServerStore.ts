@@ -10,6 +10,11 @@ interface FileServerState {
   items: FileItem[];
   selectedItems: Set<string>;
 
+  // Tree state
+  treeData: Record<string, FileItem[]>; // key = "share:path", directory-only items
+  expandedNodes: Set<string>; // key = "share:path"
+  treeLoading: Set<string>; // nodes currently being loaded
+
   // UI State
   isLoading: boolean;
   error: string | null;
@@ -29,6 +34,11 @@ interface FileServerState {
   createFolder: (name: string) => Promise<void>;
   uploadFiles: (files: FileList) => Promise<void>;
   downloadFile: (item: FileItem) => Promise<void>;
+
+  // Tree actions
+  expandNode: (share: string, path: string) => Promise<void>;
+  collapseNode: (share: string, path: string) => void;
+  toggleNode: (share: string, path: string) => Promise<void>;
 }
 
 export const useFileServerStore = create<FileServerState>((set, get) => ({
@@ -38,6 +48,9 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
   currentPath: '',
   items: [],
   selectedItems: new Set(),
+  treeData: {},
+  expandedNodes: new Set(),
+  treeLoading: new Set(),
   isLoading: false,
   error: null,
   viewMode: 'list',
@@ -57,7 +70,11 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
     set({ isLoading: true, error: null, currentShare: shareName, currentPath: '', selectedItems: new Set() });
     try {
       const result = await fileServerApi.browse(shareName, '');
-      set({ items: result.items, isLoading: false });
+      const dirs = result.items.filter((item) => item.isDirectory);
+      const key = `${shareName}:`;
+      const newTreeData = { ...get().treeData, [key]: dirs };
+      const newExpanded = new Set([...get().expandedNodes, key]);
+      set({ items: result.items, isLoading: false, treeData: newTreeData, expandedNodes: newExpanded });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Klasör içeriği yüklenirken hata oluştu';
       set({ error: message, isLoading: false, items: [] });
@@ -71,7 +88,33 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
     set({ isLoading: true, error: null, selectedItems: new Set() });
     try {
       const result = await fileServerApi.browse(currentShare, path);
-      set({ currentPath: path, items: result.items, isLoading: false });
+
+      // Cache directories in tree data
+      const dirs = result.items.filter((item) => item.isDirectory);
+      const key = `${currentShare}:${path}`;
+      const newTreeData = { ...get().treeData, [key]: dirs };
+
+      // Auto-expand all ancestor paths
+      const newExpanded = new Set(get().expandedNodes);
+      newExpanded.add(`${currentShare}:`); // share root
+      const parts = path.split('/').filter(Boolean);
+      let accumulated = '';
+      for (const part of parts) {
+        accumulated = accumulated ? `${accumulated}/${part}` : part;
+        newExpanded.add(`${currentShare}:${accumulated}`);
+      }
+
+      set({ currentPath: path, items: result.items, isLoading: false, treeData: newTreeData, expandedNodes: newExpanded });
+
+      // Lazy-load any uncached ancestors (fire-and-forget)
+      for (const nodeKey of newExpanded) {
+        if (!get().treeData[nodeKey]) {
+          const colonIdx = nodeKey.indexOf(':');
+          const share = nodeKey.substring(0, colonIdx);
+          const nodePath = nodeKey.substring(colonIdx + 1);
+          get().expandNode(share, nodePath);
+        }
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Klasör içeriği yüklenirken hata oluştu';
       set({ error: message, isLoading: false });
@@ -96,10 +139,20 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
       return;
     }
 
-    set({ isLoading: true, error: null });
+    // Clear tree cache for current path so it re-fetches
+    const key = `${currentShare}:${currentPath}`;
+    const newTreeData = { ...get().treeData };
+    delete newTreeData[key];
+    set({ isLoading: true, error: null, treeData: newTreeData });
+
     try {
       const result = await fileServerApi.browse(currentShare, currentPath);
-      set({ items: result.items, isLoading: false });
+      const dirs = result.items.filter((item) => item.isDirectory);
+      set({
+        items: result.items,
+        isLoading: false,
+        treeData: { ...get().treeData, [key]: dirs },
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Yenileme başarısız';
       set({ error: message, isLoading: false });
@@ -203,6 +256,51 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'İndirme başarısız';
       set({ error: message });
+    }
+  },
+
+  // Tree actions
+  expandNode: async (share: string, path: string) => {
+    const key = `${share}:${path}`;
+    const { treeData, treeLoading } = get();
+
+    // If already cached, just mark expanded
+    if (treeData[key]) {
+      set({ expandedNodes: new Set([...get().expandedNodes, key]) });
+      return;
+    }
+
+    // Mark loading
+    set({ treeLoading: new Set([...treeLoading, key]) });
+
+    try {
+      const result = await fileServerApi.browse(share, path);
+      const dirs = result.items.filter((item) => item.isDirectory);
+      const newTreeData = { ...get().treeData, [key]: dirs };
+      const newExpanded = new Set([...get().expandedNodes, key]);
+      const newLoading = new Set(get().treeLoading);
+      newLoading.delete(key);
+      set({ treeData: newTreeData, expandedNodes: newExpanded, treeLoading: newLoading });
+    } catch {
+      const newLoading = new Set(get().treeLoading);
+      newLoading.delete(key);
+      set({ treeLoading: newLoading });
+    }
+  },
+
+  collapseNode: (share: string, path: string) => {
+    const key = `${share}:${path}`;
+    const newExpanded = new Set(get().expandedNodes);
+    newExpanded.delete(key);
+    set({ expandedNodes: newExpanded });
+  },
+
+  toggleNode: async (share: string, path: string) => {
+    const key = `${share}:${path}`;
+    if (get().expandedNodes.has(key)) {
+      get().collapseNode(share, path);
+    } else {
+      await get().expandNode(share, path);
     }
   },
 }));

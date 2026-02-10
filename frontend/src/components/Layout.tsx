@@ -13,6 +13,7 @@ import {
   Users,
   FolderTree,
   FolderKanban,
+  Server,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
@@ -24,6 +25,7 @@ const navItems = [
   { path: '/announcements', icon: Bell, label: 'Duyurular' },
   { path: '/documents', icon: FileText, label: 'Dökümanlar' },
   { path: '/applications', icon: Grid3X3, label: 'Uygulamalar' },
+  { path: '/file-server', icon: Server, label: 'Ortak Alan' },
 ];
 
 const adminNavItems = [

@@ -132,6 +132,7 @@ services:
     environment:
       VITE_API_URL: http://${HOST_IP:-localhost}:${API_PORT:-3001}/api
       VITE_ONLYOFFICE_URL: http://${HOST_IP:-localhost}:${ONLYOFFICE_PORT:-8088}
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: host.docker.internal
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:

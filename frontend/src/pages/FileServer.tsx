@@ -8,7 +8,6 @@ import {
   FolderPlus,
   RefreshCw,
   ChevronRight,
-  Home,
   LayoutGrid,
   List,
   Server,
@@ -28,6 +27,7 @@ import DocumentViewer from '../components/DocumentViewer';
 import DocumentViewerErrorBoundary from '../components/DocumentViewerErrorBoundary';
 import { XRayViewer } from '../components/documents/XRayViewer';
 import { CadViewer } from '../components/documents/CadViewer';
+import FileServerSidebar from '../components/file-server/FileServerSidebar';
 
 export default function FileServer() {
   const {
@@ -39,6 +39,9 @@ export default function FileServer() {
     isLoading,
     error,
     viewMode,
+    treeData,
+    expandedNodes,
+    treeLoading,
     loadShares,
     selectShare,
     navigateTo,
@@ -52,6 +55,7 @@ export default function FileServer() {
     createFolder,
     uploadFiles,
     downloadFile,
+    toggleNode,
   } = useFileServerStore();
 
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
@@ -124,7 +128,7 @@ export default function FileServer() {
     }
   };
 
-  const openDocumentViewer = (item: FileItem, mode?: 'view' | 'edit') => {
+  const openDocumentViewer = (item: FileItem, _mode?: 'view' | 'edit') => {
     const filePath = currentPath ? `${currentPath}/${item.name}` : item.name;
     setDocumentToView({
       share: currentShare || '',
@@ -177,70 +181,24 @@ export default function FileServer() {
     return () => window.removeEventListener('click', handler);
   }, [contextMenu]);
 
+  const handleSidebarSelectNode = (share: string, path: string) => {
+    if (share !== currentShare) {
+      selectShare(share).then(() => {
+        if (path) navigateTo(path);
+      });
+    } else {
+      navigateTo(path);
+    }
+  };
+
+  const handleSidebarToggleNode = (share: string, path: string) => {
+    toggleNode(share, path);
+  };
+
   const breadcrumbs = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : [];
 
-  // Share selection view
-  if (!currentShare) {
-    return (
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Server className="text-blue-600" />
-            Dosya Sunucusu
-          </h1>
-          <button
-            onClick={refresh}
-            disabled={isLoading}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-          >
-            <RefreshCw className={isLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
-          </div>
-        ) : shares.length === 0 ? (
-          <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-            <Server className="w-16 h-16 mx-auto mb-4 opacity-50" />
-            <p>Erişilebilir paylaşım bulunamadı.</p>
-            <p className="text-sm mt-2">Dosya sunucusuna erişim yetkinizi kontrol edin.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {shares.map((share) => (
-              <button
-                key={share.name}
-                onClick={() => selectShare(share.name)}
-                className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-center group"
-              >
-                <Folder className="w-12 h-12 mx-auto mb-2 text-yellow-500 group-hover:text-yellow-600" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate block">
-                  {share.name}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // File browser view
   return (
-    <div
-      className="p-6 min-h-full"
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-    >
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 96px)' }}>
       {/* Drag overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-blue-500/20 border-4 border-dashed border-blue-500 flex items-center justify-center pointer-events-none">
@@ -253,341 +211,383 @@ export default function FileServer() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => useFileServerStore.setState({ currentShare: null, currentPath: '', items: [] })}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-            title="Paylaşımlara dön"
-          >
-            <Home />
-          </button>
-          {currentPath && (
-            <button
-              onClick={navigateUp}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-              title="Üst klasör"
-            >
-              <ArrowLeft />
-            </button>
-          )}
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex items-center gap-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            multiple
-            onChange={(e) => handleFileUpload(e.target.files)}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-          >
-            <Upload size={16} />
-            Yükle
-          </button>
-          <button
-            onClick={() => setShowNewFolderInput(true)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-sm"
-          >
-            <FolderPlus size={16} />
-            Yeni Klasör
-          </button>
-          {selectedItems.size > 0 && (
-            <button
-              onClick={deleteSelected}
-              className="flex items-center gap-1 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 text-sm"
-            >
-              <Trash2 size={16} />
-              Sil ({selectedItems.size})
-            </button>
-          )}
-          <div className="border-l border-gray-300 dark:border-gray-600 h-6 mx-2" />
-          <button
-            onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-          >
-            <List />
-          </button>
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-          >
-            <LayoutGrid />
-          </button>
-          <button
-            onClick={refresh}
-            disabled={isLoading}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
-          >
-            <RefreshCw className={isLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
+      {/* Page header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <Server className="text-blue-600" />
+          Ortak Alan
+        </h1>
       </div>
 
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 mb-4 text-sm text-gray-600 dark:text-gray-300 overflow-x-auto">
-        <button
-          onClick={() => navigateTo('')}
-          className="hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1"
+      {/* Two-panel layout */}
+      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 mt-4">
+        {/* Left panel - Sidebar */}
+        <div className="col-span-3 hidden lg:block min-h-0 overflow-hidden">
+          <FileServerSidebar
+            shares={shares}
+            currentShare={currentShare}
+            currentPath={currentPath}
+            treeData={treeData}
+            expandedNodes={expandedNodes}
+            treeLoading={treeLoading}
+            onSelectNode={handleSidebarSelectNode}
+            onToggleNode={handleSidebarToggleNode}
+            onRefresh={() => { loadShares(); }}
+            isLoading={isLoading && shares.length === 0}
+          />
+        </div>
+
+        {/* Right panel - Content */}
+        <div
+          className="col-span-12 lg:col-span-9 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
         >
-          <Server />
-          {currentShare}
-        </button>
-        {breadcrumbs.map((crumb, index) => (
-          <span key={index} className="flex items-center">
-            <ChevronRight className="mx-1" />
-            <button
-              onClick={() => navigateTo(breadcrumbs.slice(0, index + 1).join('/'))}
-              className="hover:text-blue-600 dark:hover:text-blue-400"
-            >
-              {crumb}
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {/* New folder input */}
-      {showNewFolderInput && (
-        <div className="mb-4 flex items-center gap-2">
-          <input
-            type="text"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
-            placeholder="Klasör adı"
-            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            autoFocus
-          />
-          <button
-            onClick={handleCreateFolder}
-            className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700"
-          >
-            <Check />
-          </button>
-          <button
-            onClick={() => {
-              setShowNewFolderInput(false);
-              setNewFolderName('');
-            }}
-            className="p-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
-          >
-            <X />
-          </button>
-        </div>
-      )}
-
-      {/* Error message */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {/* Loading */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!isLoading && items.length === 0 && (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <Folder className="w-16 h-16 mx-auto mb-4 opacity-50" />
-          <p>Bu klasör boş</p>
-        </div>
-      )}
-
-      {/* File list */}
-      {!isLoading && items.length > 0 && viewMode === 'list' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-gray-50 dark:bg-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
-            <div className="col-span-1">
-              <input
-                type="checkbox"
-                checked={selectedItems.size === items.length && items.length > 0}
-                onChange={() => (selectedItems.size === items.length ? clearSelection() : selectAll())}
-                className="rounded"
-              />
-            </div>
-            <div className="col-span-5">Ad</div>
-            <div className="col-span-2">Boyut</div>
-            <div className="col-span-3">Değiştirilme</div>
-            <div className="col-span-1"></div>
-          </div>
-
-          {/* Items */}
-          {items.map((item) => (
-            <div
-              key={item.name}
-              className={`grid grid-cols-12 gap-4 px-4 py-2 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer ${
-                selectedItems.has(item.name) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-              }`}
-              onClick={() => handleItemClick(item)}
-              onDoubleClick={() => handleItemDoubleClick(item)}
-              onContextMenu={(e) => handleContextMenu(e, item)}
-            >
-              <div className="col-span-1" onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
-                  checked={selectedItems.has(item.name)}
-                  onChange={() => toggleSelectItem(item.name)}
-                  className="rounded"
-                />
-              </div>
-              <div className="col-span-5 flex items-center gap-2 truncate">
-                {item.isDirectory ? (
-                  <Folder className="text-yellow-500 flex-shrink-0" />
-                ) : canOpenWithXRayViewer(item.extension) ? (
-                  <Scan className="text-cyan-500 flex-shrink-0" />
-                ) : canOpenWithCadViewer(item.extension) ? (
-                  <Pen className="text-purple-500 flex-shrink-0" />
-                ) : (
-                  <File className="text-gray-400 flex-shrink-0" />
-                )}
-                <span className="truncate text-gray-900 dark:text-white">{item.name}</span>
-              </div>
-              <div className="col-span-2 text-sm text-gray-500 dark:text-gray-400">
-                {item.isDirectory ? '-' : formatFileSize(item.size)}
-              </div>
-              <div className="col-span-3 text-sm text-gray-500 dark:text-gray-400">
-                {new Date(item.modifiedAt).toLocaleString('tr-TR')}
-              </div>
-              <div className="col-span-1 flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                {!item.isDirectory && canOpenWithXRayViewer(item.extension) && (
-                  <button
-                    onClick={() => openXRayViewer(item)}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-cyan-600 dark:text-cyan-400"
-                    title="X-Ray Viewer"
-                  >
-                    <Scan size={16} />
-                  </button>
-                )}
-                {!item.isDirectory && canOpenWithCadViewer(item.extension) && (
-                  <button
-                    onClick={() => openCadViewer(item)}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-purple-600 dark:text-purple-400"
-                    title="CAD Viewer"
-                  >
-                    <Eye size={16} />
-                  </button>
-                )}
-                {!item.isDirectory && canOpenWithOnlyOffice(item.extension) && (
-                  <button
-                    onClick={() => openDocumentViewer(item)}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-blue-600 dark:text-blue-400"
-                    title="Görüntüle"
-                  >
-                    <Eye size={16} />
-                  </button>
-                )}
-                {!item.isDirectory && (
-                  <button
-                    onClick={() => downloadFile(item)}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-                    title="İndir"
-                  >
-                    <Download size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Grid view */}
-      {!isLoading && items.length > 0 && viewMode === 'grid' && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
-          {items.map((item) => {
-            const canPreview = !item.isDirectory && (canOpenWithXRayViewer(item.extension) || canOpenWithCadViewer(item.extension) || canOpenWithOnlyOffice(item.extension));
-            return (
-              <div
-                key={item.name}
-                className={`relative p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-center cursor-pointer group ${
-                  selectedItems.has(item.name) ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
-                }`}
-                onClick={() => handleItemClick(item)}
-                onDoubleClick={() => handleItemDoubleClick(item)}
-                onContextMenu={(e) => handleContextMenu(e, item)}
-              >
-                <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <input
-                    type="checkbox"
-                    checked={selectedItems.has(item.name)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      toggleSelectItem(item.name);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="rounded"
-                  />
-                </div>
-                {/* Hover action buttons */}
-                {!item.isDirectory && (
-                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    {canPreview && (
+          {/* Content header: breadcrumb + toolbar */}
+          {currentShare ? (
+            <>
+              <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                {/* Breadcrumb row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 overflow-x-auto min-w-0">
+                    {currentPath && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (canOpenWithXRayViewer(item.extension)) openXRayViewer(item);
-                          else if (canOpenWithCadViewer(item.extension)) openCadViewer(item);
-                          else openDocumentViewer(item);
-                        }}
-                        className={`p-1 text-white rounded ${
-                          canOpenWithXRayViewer(item.extension) ? 'bg-cyan-600 hover:bg-cyan-700'
-                          : canOpenWithCadViewer(item.extension) ? 'bg-purple-600 hover:bg-purple-700'
-                          : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                        title={
-                          canOpenWithXRayViewer(item.extension) ? 'X-Ray Viewer'
-                          : canOpenWithCadViewer(item.extension) ? 'CAD Viewer'
-                          : 'Görüntüle'
-                        }
+                        onClick={navigateUp}
+                        className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 flex-shrink-0"
+                        title="Üst klasör"
                       >
-                        {canOpenWithXRayViewer(item.extension) ? <Scan size={14} /> : <Eye size={14} />}
+                        <ArrowLeft size={16} />
                       </button>
                     )}
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadFile(item);
-                      }}
-                      className="p-1 bg-gray-600 hover:bg-gray-700 text-white rounded"
-                      title="İndir"
+                      onClick={() => navigateTo('')}
+                      className="hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 flex-shrink-0"
                     >
-                      <Download size={14} />
+                      <Server size={16} />
+                      {currentShare}
+                    </button>
+                    {breadcrumbs.map((crumb, index) => (
+                      <span key={index} className="flex items-center flex-shrink-0">
+                        <ChevronRight size={14} className="mx-0.5 text-gray-400" />
+                        <button
+                          onClick={() => navigateTo(breadcrumbs.slice(0, index + 1).join('/'))}
+                          className="hover:text-blue-600 dark:hover:text-blue-400"
+                        >
+                          {crumb}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Toolbar */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      multiple
+                      onChange={(e) => handleFileUpload(e.target.files)}
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                    >
+                      <Upload size={14} />
+                      Yükle
+                    </button>
+                    <button
+                      onClick={() => setShowNewFolderInput(true)}
+                      className="flex items-center gap-1 px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-xs"
+                    >
+                      <FolderPlus size={14} />
+                    </button>
+                    {selectedItems.size > 0 && (
+                      <button
+                        onClick={deleteSelected}
+                        className="flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200 dark:hover:bg-red-900/50 text-xs"
+                      >
+                        <Trash2 size={14} />
+                        <span>{selectedItems.size}</span>
+                      </button>
+                    )}
+                    <div className="border-l border-gray-300 dark:border-gray-600 h-5 mx-1" />
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-1 rounded ${viewMode === 'list' ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      <List size={16} />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-1 rounded ${viewMode === 'grid' ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      <LayoutGrid size={16} />
+                    </button>
+                    <button
+                      onClick={refresh}
+                      disabled={isLoading}
+                      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                    >
+                      <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* New folder input */}
+                {showNewFolderInput && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+                      placeholder="Klasör adı"
+                      className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleCreateFolder}
+                      className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowNewFolderInput(false);
+                        setNewFolderName('');
+                      }}
+                      className="p-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+                    >
+                      <X size={16} />
                     </button>
                   </div>
                 )}
-                {item.isDirectory ? (
-                  <Folder className="w-12 h-12 mx-auto mb-2 text-yellow-500" />
-                ) : canOpenWithXRayViewer(item.extension) ? (
-                  <Scan className="w-12 h-12 mx-auto mb-2 text-cyan-500" />
-                ) : canOpenWithCadViewer(item.extension) ? (
-                  <Pen className="w-12 h-12 mx-auto mb-2 text-purple-500" />
-                ) : canOpenWithOnlyOffice(item.extension) ? (
-                  <FileText className="w-12 h-12 mx-auto mb-2 text-blue-500" />
-                ) : (
-                  <File className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+              </div>
+
+              {/* Error message */}
+              {error && (
+                <div className="mx-3 mt-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
+              {/* Content area */}
+              <div className="flex-1 overflow-auto p-3">
+                {/* Loading */}
+                {isLoading && (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+                  </div>
                 )}
-                <span className="text-sm text-gray-700 dark:text-gray-200 truncate block" title={item.name}>
-                  {item.name}
-                </span>
-                {!item.isDirectory && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(item.size)}</span>
+
+                {/* Empty state */}
+                {!isLoading && items.length === 0 && (
+                  <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <Folder className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p>Bu klasör boş</p>
+                  </div>
+                )}
+
+                {/* File list view */}
+                {!isLoading && items.length > 0 && viewMode === 'list' && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {/* Header */}
+                    <div className="grid grid-cols-12 gap-4 px-4 py-2 bg-gray-50 dark:bg-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600">
+                      <div className="col-span-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedItems.size === items.length && items.length > 0}
+                          onChange={() => (selectedItems.size === items.length ? clearSelection() : selectAll())}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="col-span-5">Ad</div>
+                      <div className="col-span-2">Boyut</div>
+                      <div className="col-span-3">Değiştirilme</div>
+                      <div className="col-span-1"></div>
+                    </div>
+
+                    {/* Items */}
+                    {items.map((item) => (
+                      <div
+                        key={item.name}
+                        className={`grid grid-cols-12 gap-4 px-4 py-2 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer ${
+                          selectedItems.has(item.name) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                        }`}
+                        onClick={() => handleItemClick(item)}
+                        onDoubleClick={() => handleItemDoubleClick(item)}
+                        onContextMenu={(e) => handleContextMenu(e, item)}
+                      >
+                        <div className="col-span-1" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedItems.has(item.name)}
+                            onChange={() => toggleSelectItem(item.name)}
+                            className="rounded"
+                          />
+                        </div>
+                        <div className="col-span-5 flex items-center gap-2 truncate">
+                          {item.isDirectory ? (
+                            <Folder className="text-yellow-500 flex-shrink-0" />
+                          ) : canOpenWithXRayViewer(item.extension) ? (
+                            <Scan className="text-cyan-500 flex-shrink-0" />
+                          ) : canOpenWithCadViewer(item.extension) ? (
+                            <Pen className="text-purple-500 flex-shrink-0" />
+                          ) : (
+                            <File className="text-gray-400 flex-shrink-0" />
+                          )}
+                          <span className="truncate text-gray-900 dark:text-white">{item.name}</span>
+                        </div>
+                        <div className="col-span-2 text-sm text-gray-500 dark:text-gray-400">
+                          {item.isDirectory ? '-' : formatFileSize(item.size)}
+                        </div>
+                        <div className="col-span-3 text-sm text-gray-500 dark:text-gray-400">
+                          {new Date(item.modifiedAt).toLocaleString('tr-TR')}
+                        </div>
+                        <div className="col-span-1 flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          {!item.isDirectory && canOpenWithXRayViewer(item.extension) && (
+                            <button
+                              onClick={() => openXRayViewer(item)}
+                              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-cyan-600 dark:text-cyan-400"
+                              title="X-Ray Viewer"
+                            >
+                              <Scan size={16} />
+                            </button>
+                          )}
+                          {!item.isDirectory && canOpenWithCadViewer(item.extension) && (
+                            <button
+                              onClick={() => openCadViewer(item)}
+                              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-purple-600 dark:text-purple-400"
+                              title="CAD Viewer"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          )}
+                          {!item.isDirectory && canOpenWithOnlyOffice(item.extension) && (
+                            <button
+                              onClick={() => openDocumentViewer(item)}
+                              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-blue-600 dark:text-blue-400"
+                              title="Görüntüle"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          )}
+                          {!item.isDirectory && (
+                            <button
+                              onClick={() => downloadFile(item)}
+                              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                              title="İndir"
+                            >
+                              <Download size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Grid view */}
+                {!isLoading && items.length > 0 && viewMode === 'grid' && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {items.map((item) => {
+                      const canPreview = !item.isDirectory && (canOpenWithXRayViewer(item.extension) || canOpenWithCadViewer(item.extension) || canOpenWithOnlyOffice(item.extension));
+                      return (
+                        <div
+                          key={item.name}
+                          className={`relative p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-center cursor-pointer group ${
+                            selectedItems.has(item.name) ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                          }`}
+                          onClick={() => handleItemClick(item)}
+                          onDoubleClick={() => handleItemDoubleClick(item)}
+                          onContextMenu={(e) => handleContextMenu(e, item)}
+                        >
+                          <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(item.name)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleSelectItem(item.name);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded"
+                            />
+                          </div>
+                          {/* Hover action buttons */}
+                          {!item.isDirectory && (
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                              {canPreview && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canOpenWithXRayViewer(item.extension)) openXRayViewer(item);
+                                    else if (canOpenWithCadViewer(item.extension)) openCadViewer(item);
+                                    else openDocumentViewer(item);
+                                  }}
+                                  className={`p-1 text-white rounded ${
+                                    canOpenWithXRayViewer(item.extension) ? 'bg-cyan-600 hover:bg-cyan-700'
+                                    : canOpenWithCadViewer(item.extension) ? 'bg-purple-600 hover:bg-purple-700'
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                                  }`}
+                                  title={
+                                    canOpenWithXRayViewer(item.extension) ? 'X-Ray Viewer'
+                                    : canOpenWithCadViewer(item.extension) ? 'CAD Viewer'
+                                    : 'Görüntüle'
+                                  }
+                                >
+                                  {canOpenWithXRayViewer(item.extension) ? <Scan size={14} /> : <Eye size={14} />}
+                                </button>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadFile(item);
+                                }}
+                                className="p-1 bg-gray-600 hover:bg-gray-700 text-white rounded"
+                                title="İndir"
+                              >
+                                <Download size={14} />
+                              </button>
+                            </div>
+                          )}
+                          {item.isDirectory ? (
+                            <Folder className="w-10 h-10 mx-auto mb-2 text-yellow-500" />
+                          ) : canOpenWithXRayViewer(item.extension) ? (
+                            <Scan className="w-10 h-10 mx-auto mb-2 text-cyan-500" />
+                          ) : canOpenWithCadViewer(item.extension) ? (
+                            <Pen className="w-10 h-10 mx-auto mb-2 text-purple-500" />
+                          ) : canOpenWithOnlyOffice(item.extension) ? (
+                            <FileText className="w-10 h-10 mx-auto mb-2 text-blue-500" />
+                          ) : (
+                            <File className="w-10 h-10 mx-auto mb-2 text-gray-400" />
+                          )}
+                          <span className="text-xs text-gray-700 dark:text-gray-200 truncate block" title={item.name}>
+                            {item.name}
+                          </span>
+                          {!item.isDirectory && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(item.size)}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            );
-          })}
+            </>
+          ) : (
+            /* No share selected - welcome state */
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-gray-500 dark:text-gray-400">
+                <Server className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium mb-1">Ortak Alan</p>
+                <p className="text-sm">Sol panelden bir paylaşım seçin</p>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Document Viewer Modal */}
       {documentToView && (

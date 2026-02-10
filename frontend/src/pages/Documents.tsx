@@ -267,7 +267,7 @@ export default function Documents() {
   // ─── Render ───────────────────────────────────────────────
 
   return (
-    <div className="space-y-4" onClick={handlePageClick}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 96px)' }} onClick={handlePageClick}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -322,9 +322,9 @@ export default function Documents() {
       </div>
 
       {/* Two-panel layout */}
-      <div className="grid grid-cols-12 gap-4" style={{ minHeight: '500px' }}>
+      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 mt-4">
         {/* Left panel - Folder tree */}
-        <div ref={sidebarRef} className="col-span-3 hidden lg:block">
+        <div ref={sidebarRef} className="col-span-3 hidden lg:block min-h-0 overflow-hidden">
           <DocumentsSidebar
             folders={allFolders}
             currentFolderId={currentFolderId}
@@ -337,7 +337,7 @@ export default function Documents() {
 
         {/* Right panel - Content */}
         <div
-          className="col-span-12 lg:col-span-9 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col"
+          className="col-span-12 lg:col-span-9 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden"
           onDrop={handleDrop}
           onDragOver={(e) => {
             e.preventDefault();
@@ -410,7 +410,7 @@ export default function Documents() {
 
           {/* Content area */}
           <div
-            className="flex-1 p-4 relative"
+            className="flex-1 overflow-auto p-4 relative"
             onContextMenu={(e) => {
               // Show empty area context menu if not clicking on an interactive item
               if (!currentFolderId) return;

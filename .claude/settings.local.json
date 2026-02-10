@@ -60,7 +60,8 @@
       "Bash(tar czf:*)",
       "Bash(scp:*)",
       "Bash(tar:*)",
-      "WebFetch(domain:pypi.org)"
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:vite.dev)"
     ]
   }
 }
