@@ -17,12 +17,17 @@ import {
   X,
   Eye,
   FileText,
+  Scan,
+  Edit,
+  Pen,
 } from 'lucide-react';
 import { useFileServerStore } from '../store/fileServerStore';
-import { formatFileSize, canOpenWithOnlyOffice } from '../services/fileServerApi';
+import { formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithXRayViewer, canOpenWithCadViewer, fileServerApi } from '../services/fileServerApi';
 import type { FileItem } from '../services/fileServerApi';
 import DocumentViewer from '../components/DocumentViewer';
 import DocumentViewerErrorBoundary from '../components/DocumentViewerErrorBoundary';
+import { XRayViewer } from '../components/documents/XRayViewer';
+import { CadViewer } from '../components/documents/CadViewer';
 
 export default function FileServer() {
   const {
@@ -53,6 +58,9 @@ export default function FileServer() {
   const [newFolderName, setNewFolderName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [documentToView, setDocumentToView] = useState<{ share: string; path: string; filename: string } | null>(null);
+  const [xrayDocToView, setXrayDocToView] = useState<{ share: string; path: string; filename: string } | null>(null);
+  const [cadDocToView, setCadDocToView] = useState<{ share: string; path: string; filename: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -104,8 +112,11 @@ export default function FileServer() {
 
   const handleItemDoubleClick = (item: FileItem) => {
     if (!item.isDirectory) {
-      // Check if the file can be opened with ONLYOFFICE
-      if (canOpenWithOnlyOffice(item.extension)) {
+      if (canOpenWithXRayViewer(item.extension)) {
+        openXRayViewer(item);
+      } else if (canOpenWithCadViewer(item.extension)) {
+        openCadViewer(item);
+      } else if (canOpenWithOnlyOffice(item.extension)) {
         openDocumentViewer(item);
       } else {
         downloadFile(item);
@@ -113,7 +124,7 @@ export default function FileServer() {
     }
   };
 
-  const openDocumentViewer = (item: FileItem) => {
+  const openDocumentViewer = (item: FileItem, mode?: 'view' | 'edit') => {
     const filePath = currentPath ? `${currentPath}/${item.name}` : item.name;
     setDocumentToView({
       share: currentShare || '',
@@ -125,6 +136,46 @@ export default function FileServer() {
   const closeDocumentViewer = () => {
     setDocumentToView(null);
   };
+
+  const openXRayViewer = (item: FileItem) => {
+    const filePath = currentPath ? `${currentPath}/${item.name}` : item.name;
+    setXrayDocToView({
+      share: currentShare || '',
+      path: filePath,
+      filename: item.name,
+    });
+  };
+
+  const openCadViewer = (item: FileItem) => {
+    const filePath = currentPath ? `${currentPath}/${item.name}` : item.name;
+    setCadDocToView({
+      share: currentShare || '',
+      path: filePath,
+      filename: item.name,
+    });
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, item: FileItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ item, x: e.clientX, y: e.clientY });
+  };
+
+  const handleDeleteItem = async (item: FileItem) => {
+    const path = currentPath ? `${currentPath}/${item.name}` : item.name;
+    if (currentShare) {
+      await fileServerApi.delete(currentShare, path, item.isDirectory);
+      refresh();
+    }
+  };
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = () => setContextMenu(null);
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [contextMenu]);
 
   const breadcrumbs = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : [];
 
@@ -380,6 +431,7 @@ export default function FileServer() {
               }`}
               onClick={() => handleItemClick(item)}
               onDoubleClick={() => handleItemDoubleClick(item)}
+              onContextMenu={(e) => handleContextMenu(e, item)}
             >
               <div className="col-span-1" onClick={(e) => e.stopPropagation()}>
                 <input
@@ -392,6 +444,10 @@ export default function FileServer() {
               <div className="col-span-5 flex items-center gap-2 truncate">
                 {item.isDirectory ? (
                   <Folder className="text-yellow-500 flex-shrink-0" />
+                ) : canOpenWithXRayViewer(item.extension) ? (
+                  <Scan className="text-cyan-500 flex-shrink-0" />
+                ) : canOpenWithCadViewer(item.extension) ? (
+                  <Pen className="text-purple-500 flex-shrink-0" />
                 ) : (
                   <File className="text-gray-400 flex-shrink-0" />
                 )}
@@ -404,6 +460,24 @@ export default function FileServer() {
                 {new Date(item.modifiedAt).toLocaleString('tr-TR')}
               </div>
               <div className="col-span-1 flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                {!item.isDirectory && canOpenWithXRayViewer(item.extension) && (
+                  <button
+                    onClick={() => openXRayViewer(item)}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-cyan-600 dark:text-cyan-400"
+                    title="X-Ray Viewer"
+                  >
+                    <Scan size={16} />
+                  </button>
+                )}
+                {!item.isDirectory && canOpenWithCadViewer(item.extension) && (
+                  <button
+                    onClick={() => openCadViewer(item)}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-purple-600 dark:text-purple-400"
+                    title="CAD Viewer"
+                  >
+                    <Eye size={16} />
+                  </button>
+                )}
                 {!item.isDirectory && canOpenWithOnlyOffice(item.extension) && (
                   <button
                     onClick={() => openDocumentViewer(item)}
@@ -431,57 +505,87 @@ export default function FileServer() {
       {/* Grid view */}
       {!isLoading && items.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
-          {items.map((item) => (
-            <div
-              key={item.name}
-              className={`relative p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-center cursor-pointer group ${
-                selectedItems.has(item.name) ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
-              }`}
-              onClick={() => handleItemClick(item)}
-              onDoubleClick={() => handleItemDoubleClick(item)}
-            >
-              <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <input
-                  type="checkbox"
-                  checked={selectedItems.has(item.name)}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    toggleSelectItem(item.name);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="rounded"
-                />
-              </div>
-              {/* Preview button for documents */}
-              {!item.isDirectory && canOpenWithOnlyOffice(item.extension) && (
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
+          {items.map((item) => {
+            const canPreview = !item.isDirectory && (canOpenWithXRayViewer(item.extension) || canOpenWithCadViewer(item.extension) || canOpenWithOnlyOffice(item.extension));
+            return (
+              <div
+                key={item.name}
+                className={`relative p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-center cursor-pointer group ${
+                  selectedItems.has(item.name) ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                }`}
+                onClick={() => handleItemClick(item)}
+                onDoubleClick={() => handleItemDoubleClick(item)}
+                onContextMenu={(e) => handleContextMenu(e, item)}
+              >
+                <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <input
+                    type="checkbox"
+                    checked={selectedItems.has(item.name)}
+                    onChange={(e) => {
                       e.stopPropagation();
-                      openDocumentViewer(item);
+                      toggleSelectItem(item.name);
                     }}
-                    className="p-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    title="Görüntüle"
-                  >
-                    <Eye size={14} />
-                  </button>
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded"
+                  />
                 </div>
-              )}
-              {item.isDirectory ? (
-                <Folder className="w-12 h-12 mx-auto mb-2 text-yellow-500" />
-              ) : canOpenWithOnlyOffice(item.extension) ? (
-                <FileText className="w-12 h-12 mx-auto mb-2 text-blue-500" />
-              ) : (
-                <File className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-              )}
-              <span className="text-sm text-gray-700 dark:text-gray-200 truncate block" title={item.name}>
-                {item.name}
-              </span>
-              {!item.isDirectory && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(item.size)}</span>
-              )}
-            </div>
-          ))}
+                {/* Hover action buttons */}
+                {!item.isDirectory && (
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                    {canPreview && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (canOpenWithXRayViewer(item.extension)) openXRayViewer(item);
+                          else if (canOpenWithCadViewer(item.extension)) openCadViewer(item);
+                          else openDocumentViewer(item);
+                        }}
+                        className={`p-1 text-white rounded ${
+                          canOpenWithXRayViewer(item.extension) ? 'bg-cyan-600 hover:bg-cyan-700'
+                          : canOpenWithCadViewer(item.extension) ? 'bg-purple-600 hover:bg-purple-700'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                        title={
+                          canOpenWithXRayViewer(item.extension) ? 'X-Ray Viewer'
+                          : canOpenWithCadViewer(item.extension) ? 'CAD Viewer'
+                          : 'Görüntüle'
+                        }
+                      >
+                        {canOpenWithXRayViewer(item.extension) ? <Scan size={14} /> : <Eye size={14} />}
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadFile(item);
+                      }}
+                      className="p-1 bg-gray-600 hover:bg-gray-700 text-white rounded"
+                      title="İndir"
+                    >
+                      <Download size={14} />
+                    </button>
+                  </div>
+                )}
+                {item.isDirectory ? (
+                  <Folder className="w-12 h-12 mx-auto mb-2 text-yellow-500" />
+                ) : canOpenWithXRayViewer(item.extension) ? (
+                  <Scan className="w-12 h-12 mx-auto mb-2 text-cyan-500" />
+                ) : canOpenWithCadViewer(item.extension) ? (
+                  <Pen className="w-12 h-12 mx-auto mb-2 text-purple-500" />
+                ) : canOpenWithOnlyOffice(item.extension) ? (
+                  <FileText className="w-12 h-12 mx-auto mb-2 text-blue-500" />
+                ) : (
+                  <File className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                )}
+                <span className="text-sm text-gray-700 dark:text-gray-200 truncate block" title={item.name}>
+                  {item.name}
+                </span>
+                {!item.isDirectory && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(item.size)}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -495,6 +599,160 @@ export default function FileServer() {
             onClose={closeDocumentViewer}
           />
         </DocumentViewerErrorBoundary>
+      )}
+
+      {/* X-Ray Viewer Modal */}
+      {xrayDocToView && (
+        <XRayViewer
+          filename={xrayDocToView.filename}
+          onClose={() => setXrayDocToView(null)}
+          getBuffer={async () => {
+            const blob = await fileServerApi.download(xrayDocToView.share, xrayDocToView.path);
+            return blob.arrayBuffer();
+          }}
+          onDownload={async () => {
+            const blob = await fileServerApi.download(xrayDocToView.share, xrayDocToView.path);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = xrayDocToView.filename;
+            link.click();
+            URL.revokeObjectURL(url);
+          }}
+        />
+      )}
+
+      {/* CAD Viewer Modal */}
+      {cadDocToView && (
+        <CadViewer
+          filename={cadDocToView.filename}
+          onClose={() => setCadDocToView(null)}
+          getBuffer={async () => {
+            const blob = await fileServerApi.download(cadDocToView.share, cadDocToView.path);
+            return blob.arrayBuffer();
+          }}
+          onDownload={async () => {
+            const blob = await fileServerApi.download(cadDocToView.share, cadDocToView.path);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = cadDocToView.filename;
+            link.click();
+            URL.revokeObjectURL(url);
+          }}
+        />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[180px]"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 300),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.item.isDirectory ? (
+            <>
+              <button
+                onClick={() => {
+                  handleItemClick(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <Folder className="w-4 h-4 text-yellow-500" />
+                Aç
+              </button>
+              <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+              <button
+                onClick={() => {
+                  handleDeleteItem(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                <Trash2 className="w-4 h-4" />
+                Sil
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Preview options */}
+              {canOpenWithXRayViewer(contextMenu.item.extension) && (
+                <button
+                  onClick={() => {
+                    openXRayViewer(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <Scan className="w-4 h-4 text-cyan-600" />
+                  Görüntüle (X-Ray)
+                </button>
+              )}
+              {canOpenWithCadViewer(contextMenu.item.extension) && (
+                <button
+                  onClick={() => {
+                    openCadViewer(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <Eye className="w-4 h-4 text-purple-600" />
+                  Görüntüle (CAD)
+                </button>
+              )}
+              {canOpenWithOnlyOffice(contextMenu.item.extension) && (
+                <button
+                  onClick={() => {
+                    openDocumentViewer(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <Eye className="w-4 h-4 text-blue-600" />
+                  Görüntüle
+                </button>
+              )}
+              {canEditWithOnlyOffice(contextMenu.item.extension) && (
+                <button
+                  onClick={() => {
+                    openDocumentViewer(contextMenu.item, 'edit');
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <Edit className="w-4 h-4 text-orange-500" />
+                  Düzenle
+                </button>
+              )}
+              <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+              <button
+                onClick={() => {
+                  downloadFile(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <Download className="w-4 h-4" />
+                İndir
+              </button>
+              <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+              <button
+                onClick={() => {
+                  handleDeleteItem(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                <Trash2 className="w-4 h-4" />
+                Sil
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

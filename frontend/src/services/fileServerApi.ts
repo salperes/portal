@@ -248,3 +248,19 @@ export function canEditWithOnlyOffice(extension?: string): boolean {
   const editableExtensions = ['docx', 'xlsx', 'pptx', 'txt', 'csv'];
   return editableExtensions.includes(extension?.toLowerCase() || '');
 }
+
+/**
+ * Check if a file can be opened with X-Ray Viewer (TIFF/XTIF)
+ */
+export function canOpenWithXRayViewer(extension?: string): boolean {
+  const xrayExtensions = ['tif', 'tiff', 'xtif'];
+  return xrayExtensions.includes(extension?.toLowerCase() || '');
+}
+
+/**
+ * Check if a file can be opened with CAD Viewer (DWG/DXF)
+ */
+export function canOpenWithCadViewer(extension?: string): boolean {
+  const cadExtensions = ['dwg', 'dxf'];
+  return cadExtensions.includes(extension?.toLowerCase() || '');
+}

@@ -8,10 +8,12 @@ import { AuthService } from './auth.service';
 import { LdapService } from './ldap.service';
 import { JwtStrategy } from './jwt.strategy';
 import { User } from '../common/entities';
+import { GroupsModule } from '../groups/groups.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User]),
+    GroupsModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

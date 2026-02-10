@@ -9,6 +9,9 @@ export interface FolderInfo {
   projectId: string | null;
   ownerId: string;
   path: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
   updatedAt: string;
   owner?: {
@@ -36,6 +39,9 @@ export interface DocumentInfo {
   isLocked: boolean;
   lockedBy: string | null;
   lockedAt: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

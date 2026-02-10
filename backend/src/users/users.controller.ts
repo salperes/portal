@@ -86,6 +86,13 @@ export class UsersController {
     };
   }
 
+  @Get(':id/groups')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Kullanıcının gruplarını listele (Admin)' })
+  async getUserGroups(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.getUserGroups(id);
+  }
+
   @Get(':id')
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Kullanıcı detayı (Admin)' })

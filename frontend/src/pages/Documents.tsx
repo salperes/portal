@@ -20,10 +20,13 @@ import {
   Edit,
   Shield,
   FilePlus,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useDocumentsStore } from '../store/documentsStore';
-import { documentsApi, formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithCadViewer } from '../services/documentsApi';
-import type { FolderInfo, DocumentInfo, DocumentVersionInfo } from '../services/documentsApi';
+import { documentsApi, formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithCadViewer, canOpenWithXRayViewer } from '../services/documentsApi';
+import type { FolderInfo, DocumentInfo, DocumentVersionInfo, FolderPermissions } from '../services/documentsApi';
+import { useAuthStore } from '../store/authStore';
 import DocumentsSidebar from '../components/documents/DocumentsSidebar';
 import { DocumentEditor } from '../components/documents/DocumentEditor';
 import {
@@ -35,11 +38,13 @@ import {
 } from '../components/documents/DocumentModals';
 import { PermissionsModal } from '../components/documents/PermissionsModal';
 import { CadViewer } from '../components/documents/CadViewer';
+import { XRayViewer } from '../components/documents/XRayViewer';
 
 export default function Documents() {
   const queryClient = useQueryClient();
   const { currentFolderId, setCurrentFolder, viewMode, setViewMode, searchQuery, setSearchQuery } =
     useDocumentsStore();
+  const authUser = useAuthStore((s) => s.user);
 
   // ─── Modal state ──────────────────────────────────────────
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -52,6 +57,8 @@ export default function Documents() {
   const [documentToView, setDocumentToView] = useState<{ id: string; name: string; mode: 'view' | 'edit' } | null>(null);
   const [permissionsTarget, setPermissionsTarget] = useState<{ type: 'folder' | 'document'; id: string; name: string } | null>(null);
   const [cadDocToView, setCadDocToView] = useState<{ id: string; name: string } | null>(null);
+  const [xrayDocToView, setXrayDocToView] = useState<{ id: string; name: string } | null>(null);
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Force sidebar visibility after CadViewer closes.
@@ -107,6 +114,17 @@ export default function Documents() {
     queryFn: () => documentsApi.getVersions(selectedDoc!.id),
     enabled: !!selectedDoc,
   });
+
+  const { data: folderPerms } = useQuery({
+    queryKey: ['folder-my-permissions', currentFolderId],
+    queryFn: () => documentsApi.getMyPermissions(currentFolderId!),
+    enabled: !!currentFolderId,
+  });
+
+  // Effective permissions: admin/no folder → all enabled; otherwise use fetched perms
+  const perms: FolderPermissions = (!currentFolderId || authUser?.role === 'admin')
+    ? { read: true, write: true, delete: true, manage: true }
+    : folderPerms ?? { read: true, write: true, delete: true, manage: true };
 
   // ─── Derived data ────────────────────────────────────────
 
@@ -292,6 +310,13 @@ export default function Documents() {
           >
             <FolderPlus className="w-4 h-4" />
             Klasör
+          </button>
+          <button
+            onClick={() => setShowRecycleBin(true)}
+            className="flex items-center gap-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+            title="Çöp Kutusu"
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -495,7 +520,9 @@ export default function Documents() {
                           className="grid grid-cols-12 gap-4 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
                           onClick={() => setSelectedDoc(doc)}
                           onDoubleClick={() => {
-                            if (canOpenWithCadViewer(doc.name)) {
+                            if (canOpenWithXRayViewer(doc.name)) {
+                              setXrayDocToView({ id: doc.id, name: doc.name });
+                            } else if (canOpenWithCadViewer(doc.name)) {
                               setCadDocToView({ id: doc.id, name: doc.name });
                             } else if (canOpenWithOnlyOffice(doc.name)) {
                               setDocumentToView({ id: doc.id, name: doc.name, mode: 'view' });
@@ -549,7 +576,9 @@ export default function Documents() {
                           className="relative p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group text-center"
                           onClick={() => setSelectedDoc(doc)}
                           onDoubleClick={() => {
-                            if (canOpenWithCadViewer(doc.name)) {
+                            if (canOpenWithXRayViewer(doc.name)) {
+                              setXrayDocToView({ id: doc.id, name: doc.name });
+                            } else if (canOpenWithCadViewer(doc.name)) {
                               setCadDocToView({ id: doc.id, name: doc.name });
                             } else if (canOpenWithOnlyOffice(doc.name)) {
                               setDocumentToView({ id: doc.id, name: doc.name, mode: 'view' });
@@ -646,47 +675,51 @@ export default function Documents() {
                 Aç
               </button>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   setCurrentFolder(contextMenu.id);
                   setShowCreateFolder(true);
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <FolderPlus className="w-4 h-4 text-green-500" />
                 Yeni Alt Klasör
               </button>
               <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   const folder = allFolders.find((f) => f.id === contextMenu.id);
                   if (folder) setRenameTarget({ id: contextMenu.id, name: folder.name, type: 'folder' });
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <Edit2 className="w-4 h-4" />
                 Yeniden Adlandır
               </button>
               <button
+                disabled={!perms.manage}
                 onClick={() => {
                   const folder = allFolders.find((f) => f.id === contextMenu.id);
                   if (folder) setPermissionsTarget({ type: 'folder', id: folder.id, name: folder.name });
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.manage ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <Shield className="w-4 h-4 text-blue-600" />
                 Erişim Yönetimi
               </button>
               <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
               <button
+                disabled={!perms.delete}
                 onClick={() => {
                   const folder = allFolders.find((f) => f.id === contextMenu.id);
                   if (folder) setDeleteTarget({ id: contextMenu.id, name: folder.name, type: 'folder' });
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.delete ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <Trash2 className="w-4 h-4" />
                 Sil
@@ -698,8 +731,24 @@ export default function Documents() {
           {contextMenu.type === 'document' && (() => {
             const doc = documents.find((d) => d.id === contextMenu.id);
             const docName = doc?.name || '';
+            const isCreator = doc?.createdBy === authUser?.id;
+            const canWrite = perms.write || isCreator;
+            const canDelete = perms.delete || isCreator;
+            const canManage = perms.manage;
             return (
               <>
+                {canOpenWithXRayViewer(docName) && (
+                  <button
+                    onClick={() => {
+                      setXrayDocToView({ id: contextMenu.id, name: docName });
+                      setContextMenu(null);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <Eye className="w-4 h-4 text-cyan-600" />
+                    Görüntüle (X-Ray)
+                  </button>
+                )}
                 {canOpenWithCadViewer(docName) && (
                   <button
                     onClick={() => {
@@ -726,11 +775,12 @@ export default function Documents() {
                 )}
                 {canEditWithOnlyOffice(docName) && (
                   <button
+                    disabled={!canWrite}
                     onClick={() => {
                       setDocumentToView({ id: contextMenu.id, name: docName, mode: 'edit' });
                       setContextMenu(null);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${canWrite ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                   >
                     <Edit className="w-4 h-4 text-orange-500" />
                     Düzenle
@@ -748,11 +798,12 @@ export default function Documents() {
                 </button>
                 <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
                 <button
+                  disabled={!canWrite}
                   onClick={() => {
                     if (doc) setRenameTarget({ id: contextMenu.id, name: doc.name, type: 'document' });
                     setContextMenu(null);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${canWrite ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                 >
                   <Edit2 className="w-4 h-4" />
                   Yeniden Adlandır
@@ -768,22 +819,24 @@ export default function Documents() {
                   Detaylar
                 </button>
                 <button
+                  disabled={!canManage}
                   onClick={() => {
                     if (doc) setPermissionsTarget({ type: 'document', id: doc.id, name: doc.name });
                     setContextMenu(null);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${canManage ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                 >
                   <Shield className="w-4 h-4 text-blue-600" />
                   Erişim Yönetimi
                 </button>
                 <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
                 <button
+                  disabled={!canDelete}
                   onClick={() => {
                     if (doc) setDeleteTarget({ id: contextMenu.id, name: doc.name, type: 'document' });
                     setContextMenu(null);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${canDelete ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                 >
                   <Trash2 className="w-4 h-4" />
                   Sil
@@ -796,6 +849,7 @@ export default function Documents() {
           {contextMenu.type === 'empty' && (
             <>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   const name = prompt('Dosya adı:', 'Yeni Doküman');
                   if (name && currentFolderId) {
@@ -803,12 +857,13 @@ export default function Documents() {
                   }
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <FileText className="w-4 h-4 text-blue-500" />
                 Yeni Word Dosyası
               </button>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   const name = prompt('Dosya adı:', 'Yeni Tablo');
                   if (name && currentFolderId) {
@@ -816,12 +871,13 @@ export default function Documents() {
                   }
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <FileText className="w-4 h-4 text-green-600" />
                 Yeni Excel Dosyası
               </button>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   const name = prompt('Dosya adı:', 'Yeni Sunum');
                   if (name && currentFolderId) {
@@ -829,12 +885,13 @@ export default function Documents() {
                   }
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <FileText className="w-4 h-4 text-orange-500" />
                 Yeni PowerPoint Dosyası
               </button>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   const name = prompt('Dosya adı:', 'Yeni Metin');
                   if (name && currentFolderId) {
@@ -842,28 +899,30 @@ export default function Documents() {
                   }
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <File className="w-4 h-4 text-gray-500" />
                 Yeni Metin Dosyası
               </button>
               <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   setShowCreateFolder(true);
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <FolderPlus className="w-4 h-4 text-yellow-500" />
                 Yeni Klasör
               </button>
               <button
+                disabled={!perms.write}
                 onClick={() => {
                   setShowUpload(true);
                   setContextMenu(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.write ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
               >
                 <Upload className="w-4 h-4 text-blue-600" />
                 Dosya Yükle
@@ -872,11 +931,12 @@ export default function Documents() {
                 <>
                   <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
                   <button
+                    disabled={!perms.manage}
                     onClick={() => {
                       setPermissionsTarget({ type: 'folder', id: currentFolderId, name: folderDetail?.name || 'Klasör' });
                       setContextMenu(null);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${perms.manage ? 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                   >
                     <Shield className="w-4 h-4 text-blue-600" />
                     Erişim Yönetimi
@@ -993,12 +1053,31 @@ export default function Documents() {
         />
       )}
 
+      {/* X-Ray Viewer */}
+      {xrayDocToView && (
+        <XRayViewer
+          documentId={xrayDocToView.id}
+          filename={xrayDocToView.name}
+          onClose={() => setXrayDocToView(null)}
+        />
+      )}
+
       {permissionsTarget && (
         <PermissionsModal
           resourceType={permissionsTarget.type}
           resourceId={permissionsTarget.id}
           resourceName={permissionsTarget.name}
           onClose={() => setPermissionsTarget(null)}
+        />
+      )}
+
+      {showRecycleBin && (
+        <RecycleBinModal
+          onClose={() => {
+            setShowRecycleBin(false);
+            queryClient.invalidateQueries({ queryKey: ['folders'] });
+            if (currentFolderId) queryClient.invalidateQueries({ queryKey: ['folder', currentFolderId] });
+          }}
         />
       )}
     </div>
@@ -1026,4 +1105,217 @@ function FileIcon({ mimeType, large }: { mimeType: string; large?: boolean }) {
     return <FileText className={`${size} text-orange-500`} />;
   }
   return <File className={`${size} text-gray-400`} />;
+}
+
+/* ─── RecycleBin Modal ───────────────────────────────────── */
+
+function RecycleBinModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const authUser = useAuthStore((s) => s.user);
+  const isPrivileged = authUser?.role === 'admin' || authUser?.role === 'supervisor';
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string; type: 'folder' | 'document' } | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['recycle-bin'],
+    queryFn: () => documentsApi.getRecycleBin(),
+  });
+
+  const restoreDocMutation = useMutation({
+    mutationFn: (id: string) => documentsApi.restoreDocument(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recycle-bin'] }),
+  });
+
+  const restoreFolderMutation = useMutation({
+    mutationFn: (id: string) => documentsApi.restoreFolder(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recycle-bin'] }),
+  });
+
+  const permanentDeleteDocMutation = useMutation({
+    mutationFn: (id: string) => documentsApi.permanentDeleteDocument(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      setConfirmTarget(null);
+    },
+  });
+
+  const permanentDeleteFolderMutation = useMutation({
+    mutationFn: (id: string) => documentsApi.permanentDeleteFolder(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recycle-bin'] });
+      setConfirmTarget(null);
+    },
+  });
+
+  const folders = data?.folders || [];
+  const documents = data?.documents || [];
+  const isEmpty = folders.length === 0 && documents.length === 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Trash2 className="w-5 h-5 text-gray-500" />
+            Çöp Kutusu
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          )}
+
+          {!isLoading && isEmpty && (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              <Trash2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Çöp kutusu boş</p>
+            </div>
+          )}
+
+          {/* Deleted Folders */}
+          {folders.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Silinen Klasörler</h3>
+              <div className="space-y-1">
+                {folders.map((folder) => (
+                  <div key={folder.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Folder className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-900 dark:text-white truncate">{folder.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {folder.deletedAt && new Date(folder.deletedAt).toLocaleString('tr-TR')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => restoreFolderMutation.mutate(folder.id)}
+                        disabled={restoreFolderMutation.isPending}
+                        className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600"
+                        title="Geri Yükle"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                      {isPrivileged && (
+                        <button
+                          onClick={() => setConfirmTarget({ id: folder.id, name: folder.name, type: 'folder' })}
+                          className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500"
+                          title="Kalıcı Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Deleted Documents */}
+          {documents.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Silinen Dokümanlar</h3>
+              <div className="space-y-1">
+                {documents.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileIcon mimeType={doc.mimeType} />
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-900 dark:text-white truncate">{doc.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {formatFileSize(doc.sizeBytes)}
+                          {doc.deletedAt && ` — ${new Date(doc.deletedAt).toLocaleString('tr-TR')}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => restoreDocMutation.mutate(doc.id)}
+                        disabled={restoreDocMutation.isPending}
+                        className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600"
+                        title="Geri Yükle"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                      {isPrivileged && (
+                        <button
+                          onClick={() => setConfirmTarget({ id: doc.id, name: doc.name, type: 'document' })}
+                          className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-red-500"
+                          title="Kalıcı Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+          >
+            Kapat
+          </button>
+        </div>
+      </div>
+
+      {/* Permanent Delete Confirmation */}
+      {confirmTarget && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Kalıcı Silme</h3>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              <strong>&quot;{confirmTarget.name}&quot;</strong> kalıcı olarak silinecek.
+              {confirmTarget.type === 'folder' && ' Klasördeki tüm alt öğeler de silinecek.'}
+              {' '}Bu işlem geri alınamaz!
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmTarget(null)}
+                className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                İptal
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmTarget.type === 'folder') {
+                    permanentDeleteFolderMutation.mutate(confirmTarget.id);
+                  } else {
+                    permanentDeleteDocMutation.mutate(confirmTarget.id);
+                  }
+                }}
+                disabled={permanentDeleteDocMutation.isPending || permanentDeleteFolderMutation.isPending}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {permanentDeleteDocMutation.isPending || permanentDeleteFolderMutation.isPending ? 'Siliniyor...' : 'Kalıcı Sil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

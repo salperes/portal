@@ -50,7 +50,17 @@
       "WebFetch(domain:www.npmjs.com)",
       "Bash(ls:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(pnpm remove:*)"
+      "Bash(pnpm remove:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Groups, Projects, Documents, ONLYOFFICE, CAD viewer \\(Rev 021-029\\)\n\nPhase 1: Groups & Projects modules with access control\n- GroupsModule: CRUD, member management, project subgroups\n- ProjectsModule: CRUD, assignments, auto-created default subgroups\n- AccessModule: permission rules, resource-based access control\n- 8 new entities \\(dual-location pattern\\), 23+ API endpoints\n- Frontend admin pages: GroupsAdmin, ProjectsAdmin\n\nPhase 2: Document Management with MinIO storage\n- DocumentsModule: folder hierarchy, file upload/download, versioning\n- MinioService \\(global\\), 3 new entities \\(Folder, Document, DocumentVersion\\)\n- Two-panel Documents page: sidebar folder tree + content area\n- List/Grid views, breadcrumb, drag-drop upload, search, context menus\n- Folder & document-level permissions with inheritance\n- Empty file creation \\(Word, Excel, PowerPoint, Text via JSZip templates\\)\n\nONLYOFFICE Integration:\n- DocumentEditor \\(documents\\) + DocumentViewer \\(file-server\\)\n- JWT signing, Redis session management, collaborative editing\n- Canvas rendering fix \\(display-toggle + CSS clipping removal\\)\n\nCAD Viewer \\(DWG/DXF\\):\n- @mlightcad/cad-simple-viewer integration \\(client-side, MIT\\)\n- Worker files served from public/assets \\(Docker copies from node_modules\\)\n- Proper Three.js cleanup on unmount \\(animation loop, renderer, DOM\\)\n- Monkey-patch DWG converter processObjects for layout error bypass\n\nUI: Sidebar/topbar cleanup, Settings page placeholder, version display\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: CadViewer sidebar disappearing - clean up library-injected style tags\n\nRoot cause: @mlightcad/cad-simple-viewer injects 4-5 <style> elements into\n<head> during initialization but never removes them on destroy\\(\\). These\norphaned style tags corrupt Vite dev server''s CSS injection, causing\nTailwind media queries \\(hidden lg:block\\) to fail - sidebar stayed\ndisplay:none despite viewport > 1024px.\n\n- Add cleanupLibraryStyles\\(\\) to remove all library style tags on unmount\n- Simplify cleanupDocManager\\(\\) and remove debug logging\n- Add safety net in Documents.tsx to force sidebar display after close\n- Archive CHANGELOG 021-030, add Rev 032, bump to v1.0.032\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git checkout:*)",
+      "Bash(sshpass -p 'Ankara12!' ssh -o StrictHostKeyChecking=no mssadmin@192.168.88.111 \"uname -a && echo ''===SEPARATOR==='' && docker --version && echo ''===SEPARATOR==='' && \\(docker compose version 2>/dev/null || docker-compose --version 2>/dev/null\\) && echo ''===SEPARATOR==='' && docker ps --format ''table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}'' && echo ''===SEPARATOR==='' && docker network ls && echo ''===SEPARATOR==='' && ss -tlnp | grep -E '':\\(80|443|3000|3001|5173|5432|5433|5434|6379|6380|8080|8088|9000|9001|9002|9003\\) '' && echo ''===SEPARATOR==='' && df -h / && echo ''===SEPARATOR==='' && free -h && echo ''===SEPARATOR==='' && cat /etc/os-release && echo ''===SEPARATOR==='' && echo ''Ankara12!'' | sudo -S docker volume ls 2>/dev/null\")",
+      "Bash(ssh:*)",
+      "Bash(git commit:*)",
+      "Bash(tar czf:*)",
+      "Bash(scp:*)",
+      "Bash(tar:*)",
+      "WebFetch(domain:pypi.org)"
     ]
   }
 }

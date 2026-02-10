@@ -93,7 +93,12 @@ export class LdapService {
           let userInfo: LdapUserInfo | null = null;
 
           res.on('searchEntry', (entry) => {
-            userDN = entry.dn.toString();
+            // Use distinguishedName attribute (plain UTF-8) instead of entry.dn.toString()
+            // which escapes non-ASCII chars (\c3\96 for Ö) causing bind failures
+            const dnFromAttr = entry.pojo?.attributes?.find(
+              (a: { type: string }) => a.type.toLowerCase() === 'distinguishedname'
+            )?.values?.[0];
+            userDN = dnFromAttr || entry.dn.toString();
             this.logger.log(`Found user DN: ${userDN}`);
 
             const getAttr = (name: string): string => {

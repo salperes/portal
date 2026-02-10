@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
-import { User, UserRole } from '../common/entities';
+import { User, UserRole, UserGroup } from '../common/entities';
 import { UpdateUserDto, UserResponseDto, UserStatsDto } from './dto/user.dto';
 
 @Injectable()
@@ -11,6 +11,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(UserGroup)
+    private userGroupRepository: Repository<UserGroup>,
   ) {}
 
   /**
@@ -227,6 +229,17 @@ export class UsersService {
       .getRawMany();
 
     return result.map(r => r.department);
+  }
+
+  /**
+   * Kullanıcının üye olduğu grupları getir
+   */
+  async getUserGroups(userId: string): Promise<UserGroup[]> {
+    return this.userGroupRepository.find({
+      where: { userId },
+      relations: ['group'],
+      order: { joinedAt: 'ASC' },
+    });
   }
 
   /**

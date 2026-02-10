@@ -84,10 +84,41 @@ export class GroupsService {
     return { ...group, members };
   }
 
+  /**
+   * "Everyone" sistem grubunu garanti et - yoksa oluştur.
+   * Kullanıcıyı gruba ekle (zaten üyeyse sessizce atla).
+   */
+  async ensureEveryoneMembership(userId: string): Promise<void> {
+    let group = await this.groupRepository.findOne({ where: { name: 'Everyone' } });
+    if (!group) {
+      group = this.groupRepository.create({
+        name: 'Everyone',
+        description: 'Tüm kullanıcıları içeren sistem grubu',
+        isSystem: true,
+      });
+      group = await this.groupRepository.save(group);
+      this.logger.log(`System group "Everyone" created: ${group.id}`);
+    }
+
+    const existing = await this.userGroupRepository.findOne({
+      where: { groupId: group.id, userId },
+    });
+    if (!existing) {
+      const ug = this.userGroupRepository.create({ groupId: group.id, userId, role: GroupRole.MEMBER });
+      await this.userGroupRepository.save(ug);
+      this.logger.log(`User ${userId} added to Everyone group`);
+    }
+  }
+
   async update(id: string, dto: UpdateGroupDto): Promise<Group> {
     const group = await this.groupRepository.findOne({ where: { id } });
     if (!group) {
       throw new NotFoundException('Grup bulunamadı');
+    }
+
+    // System group name protection
+    if (group.isSystem && dto.name && dto.name !== group.name) {
+      throw new ConflictException('Sistem grubunun adı değiştirilemez');
     }
 
     // Name uniqueness check
@@ -119,6 +150,10 @@ export class GroupsService {
     const group = await this.groupRepository.findOne({ where: { id } });
     if (!group) {
       throw new NotFoundException('Grup bulunamadı');
+    }
+
+    if (group.isSystem) {
+      throw new ConflictException('Sistem grubu silinemez');
     }
 
     // Check for members

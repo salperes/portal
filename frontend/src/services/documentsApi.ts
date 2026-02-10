@@ -70,6 +70,11 @@ export const documentsApi = {
     await api.delete(`/documents/folders/${folderId}/permissions/${ruleId}`);
   },
 
+  getMyPermissions: async (folderId: string): Promise<FolderPermissions> => {
+    const response = await api.get(`/documents/folders/${folderId}/my-permissions`);
+    return response.data;
+  },
+
   // ─── Document Permission Operations ──────────────────────────
 
   getDocumentPermissions: async (docId: string): Promise<PermissionRule[]> => {
@@ -140,6 +145,31 @@ export const documentsApi = {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  },
+
+  // ─── Recycle Bin Operations ──────────────────────────────────
+
+  getRecycleBin: async (): Promise<{ folders: FolderInfo[]; documents: DocumentInfo[] }> => {
+    const response = await api.get('/documents/recycle-bin');
+    return response.data;
+  },
+
+  restoreDocument: async (id: string): Promise<DocumentInfo> => {
+    const response = await api.post(`/documents/${id}/restore`);
+    return response.data;
+  },
+
+  permanentDeleteDocument: async (id: string): Promise<void> => {
+    await api.delete(`/documents/${id}/permanent`);
+  },
+
+  restoreFolder: async (id: string): Promise<FolderInfo> => {
+    const response = await api.post(`/documents/folders/${id}/restore`);
+    return response.data;
+  },
+
+  permanentDeleteFolder: async (id: string): Promise<void> => {
+    await api.delete(`/documents/folders/${id}/permanent`);
   },
 
   // ─── Version Operations ────────────────────────────────────
@@ -253,6 +283,15 @@ export function canOpenWithCadViewer(filename: string): boolean {
   return cadExtensions.includes(ext);
 }
 
+// ─── X-Ray/TIFF File Type Helpers ────────────────────────────
+
+const xrayExtensions = ['tif', 'tiff', 'xtif'];
+
+export function canOpenWithXRayViewer(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return xrayExtensions.includes(ext);
+}
+
 // ─── Folder Permission Types ────────────────────────────────
 
 export interface FolderPermissionRule {
@@ -270,6 +309,13 @@ export interface FolderPermissionRule {
 
 export interface PermissionRule extends FolderPermissionRule {
   source: 'self' | 'inherited';
+}
+
+export interface FolderPermissions {
+  read: boolean;
+  write: boolean;
+  delete: boolean;
+  manage: boolean;
 }
 
 export interface CreateFolderPermissionDto {

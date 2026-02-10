@@ -6,9 +6,13 @@ import { AcDbDatabaseConverterManager } from '@mlightcad/data-model';
 import { documentsApi } from '../../services/documentsApi';
 
 interface CadViewerProps {
-  documentId: string;
+  documentId?: string;
   filename: string;
   onClose: () => void;
+  /** Custom buffer provider (for file-server). If not provided, uses documentsApi. */
+  getBuffer?: () => Promise<ArrayBuffer>;
+  /** Custom download handler (for file-server). If not provided, uses documentsApi. */
+  onDownload?: () => Promise<void>;
 }
 
 /**
@@ -121,7 +125,7 @@ function createKeydownBlocker() {
   return () => document.removeEventListener('keydown', handler, true);
 }
 
-export function CadViewer({ documentId, filename, onClose }: CadViewerProps) {
+export function CadViewer({ documentId, filename, onClose, getBuffer, onDownload }: CadViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const docManagerRef = useRef<AcApDocManager | null>(null);
   const mountedRef = useRef(true);
@@ -135,7 +139,9 @@ export function CadViewer({ documentId, filename, onClose }: CadViewerProps) {
     const initViewer = async () => {
       try {
         // 1. Download file content as ArrayBuffer
-        const content = await documentsApi.downloadDocumentBuffer(documentId);
+        const content = getBuffer
+          ? await getBuffer()
+          : await documentsApi.downloadDocumentBuffer(documentId!);
         if (!mountedRef.current) return;
 
         if (!content.byteLength) {
@@ -215,11 +221,16 @@ export function CadViewer({ documentId, filename, onClose }: CadViewerProps) {
       // Remove keydown blocker after a delay (library's stale listener persists)
       setTimeout(removeKeydownBlocker, 2000);
     };
-  }, [documentId, filename]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, filename, getBuffer]);
 
   const handleDownload = async () => {
     try {
-      await documentsApi.downloadDocument(documentId, filename);
+      if (onDownload) {
+        await onDownload();
+      } else if (documentId) {
+        await documentsApi.downloadDocument(documentId, filename);
+      }
     } catch (err) {
       console.error('Download failed:', err);
     }

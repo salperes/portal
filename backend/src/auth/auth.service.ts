@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { LdapService, LdapUserInfo } from './ldap.service';
 import { User, UserRole } from '../common/entities';
 import { RedisService } from '../common/services';
+import { GroupsService } from '../groups/groups.service';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
 
 // Varsayılan admin kullanıcıları (AD'den bağımsız)
@@ -20,6 +21,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
+    private groupsService: GroupsService,
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
@@ -105,6 +107,13 @@ export class AuthService {
       }
       user.lastLogin = new Date();
       user = await this.userRepository.save(user);
+    }
+
+    // Everyone grubuna otomatik ekle
+    try {
+      await this.groupsService.ensureEveryoneMembership(user.id);
+    } catch (error) {
+      this.logger.warn(`Failed to add user ${username} to Everyone group: ${error.message}`);
     }
 
     // Kullanıcı şifresini Redis'e kaydet (dosya sunucusu erişimi için)

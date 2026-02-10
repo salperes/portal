@@ -10,7 +10,7 @@ import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import { Folder, Document, DocumentVersion, AccessRule, ResourceType, RuleType, User, Group } from '../common/entities';
+import { Folder, Document, DocumentVersion, AccessRule, ResourceType, RuleType, User, UserRole, Group } from '../common/entities';
 import { MinioService, RedisService } from '../common/services';
 import { AccessService } from '../access/access.service';
 import { CreateFolderDto, UpdateFolderDto, UploadDocumentDto, UpdateDocumentDto, CreateFolderPermissionDto, CreateNewDocumentDto } from './dto';
@@ -55,20 +55,22 @@ export class DocumentsService {
 
   // ─── Folder Operations ───────────────────────────────────────
 
-  async createFolder(dto: CreateFolderDto, userId: string): Promise<Folder> {
+  async createFolder(dto: CreateFolderDto, user: User): Promise<Folder> {
     // Validate parent exists
     if (dto.parentId) {
       const parent = await this.folderRepository.findOne({ where: { id: dto.parentId } });
       if (!parent) {
         throw new NotFoundException('Üst klasör bulunamadı');
       }
+      // Check write permission on parent folder
+      await this.enforceFolderPermission(user, dto.parentId, 'write', { ownerId: parent.ownerId });
     }
 
     const folder = this.folderRepository.create({
       name: dto.name,
       parentId: dto.parentId || null,
       projectId: dto.projectId || null,
-      ownerId: userId,
+      ownerId: user.id,
     });
 
     const saved = await this.folderRepository.save(folder);
@@ -85,10 +87,11 @@ export class DocumentsService {
     parentId?: string;
     projectId?: string;
     all?: boolean;
+    user?: User;
   }): Promise<Folder[]> {
-    const { parentId, projectId, all } = options || {};
+    const { parentId, projectId, all, user } = options || {};
 
-    const where: any = {};
+    const where: any = { isDeleted: false };
     if (all) {
       // Return all folders (no parentId filter)
     } else if (parentId) {
@@ -100,16 +103,49 @@ export class DocumentsService {
       where.projectId = projectId;
     }
 
-    return this.folderRepository.find({
+    const folders = await this.folderRepository.find({
       where,
       relations: ['owner'],
       order: { name: 'ASC' },
+    });
+
+    // Apply access control filtering
+    if (!user || user.role === UserRole.ADMIN) return folders;
+    if (folders.length === 0) return folders;
+
+    // Collect folder IDs + ancestor IDs from paths for inheritance check
+    const folderIdSet = new Set(folders.map(f => f.id));
+    const allIdsToCheck = new Set(folderIdSet);
+    for (const f of folders) {
+      if (f.path) {
+        for (const pid of f.path.split('/')) {
+          if (pid) allIdsToCheck.add(pid);
+        }
+      }
+    }
+
+    const accessibleIds = await this.accessService.getAccessibleFolderIds(user, [...allIdsToCheck]);
+
+    // A folder is visible if:
+    // 1. User is the folder owner
+    // 2. Folder has direct access
+    // 3. Any ancestor has access (inherited permissions)
+    return folders.filter(f => {
+      if (f.ownerId === user.id) return true;
+      if (accessibleIds.has(f.id)) return true;
+      if (f.path) {
+        const pathIds = f.path.split('/').filter(Boolean);
+        for (const pid of pathIds) {
+          if (pid !== f.id && accessibleIds.has(pid)) return true;
+        }
+      }
+      return false;
     });
   }
 
   async findFolderById(id: string): Promise<Folder & { documents: Document[] }> {
     const folder = await this.folderRepository.findOne({
-      where: { id },
+      where: { id, isDeleted: false },
       relations: ['owner', 'children', 'project'],
     });
 
@@ -118,7 +154,7 @@ export class DocumentsService {
     }
 
     const documents = await this.documentRepository.find({
-      where: { folderId: id },
+      where: { folderId: id, isDeleted: false },
       relations: ['creator'],
       order: { name: 'ASC' },
     });
@@ -135,6 +171,7 @@ export class DocumentsService {
     }
 
     const allFolders = await this.folderRepository.find({
+      where: { isDeleted: false },
       relations: ['owner'],
       order: { name: 'ASC' },
     });
@@ -176,11 +213,14 @@ export class DocumentsService {
     return breadcrumb;
   }
 
-  async updateFolder(id: string, dto: UpdateFolderDto): Promise<Folder> {
+  async updateFolder(id: string, dto: UpdateFolderDto, user: User): Promise<Folder> {
     const folder = await this.folderRepository.findOne({ where: { id } });
     if (!folder) {
       throw new NotFoundException('Klasör bulunamadı');
     }
+
+    // Check write permission on folder
+    await this.enforceFolderPermission(user, id, 'write', { ownerId: folder.ownerId });
 
     // Prevent moving to own subtree
     if (dto.parentId) {
@@ -217,35 +257,57 @@ export class DocumentsService {
     return saved;
   }
 
-  async removeFolder(id: string): Promise<void> {
-    const folder = await this.folderRepository.findOne({ where: { id } });
+  async removeFolder(id: string, user: User): Promise<void> {
+    const folder = await this.folderRepository.findOne({ where: { id, isDeleted: false } });
     if (!folder) {
       throw new NotFoundException('Klasör bulunamadı');
     }
 
-    // Check for children
-    const childCount = await this.folderRepository.count({ where: { parentId: id } });
-    if (childCount > 0) {
-      throw new BadRequestException('Alt klasörleri olan bir klasör silinemez');
+    // Check delete permission on folder
+    await this.enforceFolderPermission(user, id, 'delete', { ownerId: folder.ownerId });
+
+    // Soft delete: cascade to all descendants
+    await this.softDeleteFolderCascade(id, user.id);
+    this.logger.log(`Folder soft-deleted (cascade): ${folder.name} (${id})`);
+  }
+
+  private async softDeleteFolderCascade(folderId: string, userId: string): Promise<void> {
+    const now = new Date();
+
+    // Soft-delete documents in this folder
+    await this.documentRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isDeleted: true, deletedAt: now, deletedBy: userId })
+      .where('folder_id = :folderId AND is_deleted = false', { folderId })
+      .execute();
+
+    // Soft-delete child folders (recursively)
+    const children = await this.folderRepository.find({
+      where: { parentId: folderId, isDeleted: false },
+    });
+    for (const child of children) {
+      await this.softDeleteFolderCascade(child.id, userId);
     }
 
-    // Check for documents
-    const docCount = await this.documentRepository.count({ where: { folderId: id } });
-    if (docCount > 0) {
-      throw new BadRequestException('Doküman içeren bir klasör silinemez');
-    }
-
-    await this.folderRepository.remove(folder);
-    this.logger.log(`Folder deleted: ${folder.name} (${id})`);
+    // Soft-delete the folder itself
+    await this.folderRepository.update(folderId, {
+      isDeleted: true,
+      deletedAt: now,
+      deletedBy: userId,
+    });
   }
 
   // ─── Document Operations ─────────────────────────────────────
 
-  async createEmptyDocument(dto: CreateNewDocumentDto, userId: string): Promise<Document> {
+  async createEmptyDocument(dto: CreateNewDocumentDto, user: User): Promise<Document> {
     const folder = await this.folderRepository.findOne({ where: { id: dto.folderId } });
     if (!folder) {
       throw new NotFoundException('Klasör bulunamadı');
     }
+
+    // Check write permission on folder
+    await this.enforceFolderPermission(user, dto.folderId, 'write', { ownerId: folder.ownerId });
 
     const { buffer, mimeType } = await generateTemplate(dto.type);
     const filename = `${dto.name}.${dto.type}`;
@@ -257,7 +319,7 @@ export class DocumentsService {
       sizeBytes: buffer.length,
       storageKey: '',
       currentVersion: 1,
-      createdBy: userId,
+      createdBy: user.id,
     });
 
     const saved = await this.documentRepository.save(doc);
@@ -274,7 +336,7 @@ export class DocumentsService {
       storageKey,
       sizeBytes: buffer.length,
       changeNote: 'Yeni dosya oluşturuldu',
-      createdBy: userId,
+      createdBy: user.id,
     });
     await this.versionRepository.save(version);
 
@@ -285,13 +347,16 @@ export class DocumentsService {
   async uploadDocument(
     file: Express.Multer.File,
     dto: UploadDocumentDto,
-    userId: string,
+    user: User,
   ): Promise<Document> {
     // Validate folder
     const folder = await this.folderRepository.findOne({ where: { id: dto.folderId } });
     if (!folder) {
       throw new NotFoundException('Klasör bulunamadı');
     }
+
+    // Check write permission on folder
+    await this.enforceFolderPermission(user, dto.folderId, 'write', { ownerId: folder.ownerId });
 
     // Create document record
     const doc = this.documentRepository.create({
@@ -302,7 +367,7 @@ export class DocumentsService {
       sizeBytes: file.size,
       storageKey: '', // will be set after save (need ID)
       currentVersion: 1,
-      createdBy: userId,
+      createdBy: user.id,
     });
 
     const saved = await this.documentRepository.save(doc);
@@ -321,7 +386,7 @@ export class DocumentsService {
       storageKey,
       sizeBytes: file.size,
       changeNote: 'İlk yükleme',
-      createdBy: userId,
+      createdBy: user.id,
     });
     await this.versionRepository.save(version);
 
@@ -334,12 +399,14 @@ export class DocumentsService {
     search?: string;
     page?: number;
     limit?: number;
+    user?: User;
   }): Promise<{ documents: Document[]; total: number }> {
-    const { folderId, search, page = 1, limit = 50 } = options || {};
+    const { folderId, search, page = 1, limit = 50, user } = options || {};
 
     const qb = this.documentRepository.createQueryBuilder('doc')
       .leftJoinAndSelect('doc.creator', 'creator')
-      .leftJoinAndSelect('doc.folder', 'folder');
+      .leftJoinAndSelect('doc.folder', 'folder')
+      .where('doc.is_deleted = :notDeleted', { notDeleted: false });
 
     if (folderId) {
       qb.andWhere('doc.folder_id = :folderId', { folderId });
@@ -356,13 +423,48 @@ export class DocumentsService {
     qb.skip(skip).take(limit);
     qb.orderBy('doc.name', 'ASC');
 
-    const [documents, total] = await qb.getManyAndCount();
+    let [documents, total] = await qb.getManyAndCount();
+
+    // Filter by folder access (with inheritance from ancestor folders)
+    if (user && user.role !== UserRole.ADMIN && documents.length > 0) {
+      const folderIds = [...new Set(documents.map(d => d.folderId).filter(Boolean))];
+      if (folderIds.length > 0) {
+        // Collect folder IDs + ancestor IDs from folder paths for inheritance
+        const allIdsToCheck = new Set(folderIds);
+        for (const doc of documents) {
+          if (doc.folder?.path) {
+            for (const pid of doc.folder.path.split('/')) {
+              if (pid) allIdsToCheck.add(pid);
+            }
+          }
+        }
+        const accessibleFolders = await this.accessService.getAccessibleFolderIds(user, [...allIdsToCheck]);
+        // Creator always sees their own documents; others need folder access (direct or inherited)
+        documents = documents.filter(d => {
+          if (d.createdBy === user.id) return true;
+          if (!d.folderId) return true;
+          if (accessibleFolders.has(d.folderId)) return true;
+          // Check ancestors for inherited access
+          if (d.folder?.path) {
+            const pathIds = d.folder.path.split('/').filter(Boolean);
+            for (const pid of pathIds) {
+              if (pid !== d.folderId && accessibleFolders.has(pid)) return true;
+            }
+          }
+          return false;
+        });
+        total = documents.length;
+      }
+    }
+
     return { documents, total };
   }
 
-  async findDocumentById(id: string): Promise<Document> {
+  async findDocumentById(id: string, includeDeleted = false): Promise<Document> {
+    const where: any = { id };
+    if (!includeDeleted) where.isDeleted = false;
     const doc = await this.documentRepository.findOne({
-      where: { id },
+      where,
       relations: ['creator', 'folder', 'lockedByUser'],
     });
 
@@ -373,8 +475,12 @@ export class DocumentsService {
     return doc;
   }
 
-  async downloadDocument(id: string): Promise<{ buffer: Buffer; document: Document }> {
+  async downloadDocument(id: string, user?: User): Promise<{ buffer: Buffer; document: Document }> {
     const doc = await this.findDocumentById(id);
+    // Check read permission on document's folder
+    if (user && doc.folderId) {
+      await this.enforceFolderPermission(user, doc.folderId, 'read', { creatorId: doc.createdBy });
+    }
     const buffer = await this.minioService.getObject(doc.storageKey);
     return { buffer, document: doc };
   }
@@ -396,11 +502,14 @@ export class DocumentsService {
     return { buffer, version, document: doc };
   }
 
-  async updateDocument(id: string, dto: UpdateDocumentDto): Promise<Document> {
+  async updateDocument(id: string, dto: UpdateDocumentDto, user: User): Promise<Document> {
     const doc = await this.documentRepository.findOne({ where: { id } });
     if (!doc) {
       throw new NotFoundException('Doküman bulunamadı');
     }
+
+    // Check write permission on document's folder
+    await this.enforceFolderPermission(user, doc.folderId, 'write', { creatorId: doc.createdBy });
 
     // Validate target folder if moving
     if (dto.folderId && dto.folderId !== doc.folderId) {
@@ -422,13 +531,16 @@ export class DocumentsService {
   async uploadNewVersion(
     id: string,
     file: Express.Multer.File,
-    userId: string,
+    user: User,
     changeNote?: string,
   ): Promise<DocumentVersion> {
     const doc = await this.documentRepository.findOne({ where: { id } });
     if (!doc) {
       throw new NotFoundException('Doküman bulunamadı');
     }
+
+    // Check write permission on document's folder
+    await this.enforceFolderPermission(user, doc.folderId, 'write', { creatorId: doc.createdBy });
 
     const newVersionNumber = doc.currentVersion + 1;
     const storageKey = `${doc.folderId}/${doc.id}/v${newVersionNumber}/${file.originalname}`;
@@ -443,7 +555,7 @@ export class DocumentsService {
       storageKey,
       sizeBytes: file.size,
       changeNote: changeNote || null,
-      createdBy: userId,
+      createdBy: user.id,
     });
     const savedVersion = await this.versionRepository.save(version);
 
@@ -459,23 +571,21 @@ export class DocumentsService {
     return savedVersion;
   }
 
-  async removeDocument(id: string): Promise<void> {
-    const doc = await this.documentRepository.findOne({ where: { id } });
+  async removeDocument(id: string, user: User): Promise<void> {
+    const doc = await this.documentRepository.findOne({ where: { id, isDeleted: false } });
     if (!doc) {
       throw new NotFoundException('Doküman bulunamadı');
     }
 
-    // Get all versions and delete from MinIO
-    const versions = await this.versionRepository.find({ where: { documentId: id } });
-    const storageKeys = versions.map((v) => v.storageKey);
-    if (storageKeys.length > 0) {
-      await this.minioService.deleteObjects(storageKeys);
-    }
+    // Check delete permission on document's folder
+    await this.enforceFolderPermission(user, doc.folderId, 'delete', { creatorId: doc.createdBy });
 
-    // Delete versions then document
-    await this.versionRepository.delete({ documentId: id });
-    await this.documentRepository.remove(doc);
-    this.logger.log(`Document deleted: ${doc.name} (${id})`);
+    // Soft delete: mark as deleted instead of removing
+    doc.isDeleted = true;
+    doc.deletedAt = new Date();
+    doc.deletedBy = user.id;
+    await this.documentRepository.save(doc);
+    this.logger.log(`Document soft-deleted: ${doc.name} (${id})`);
   }
 
   async getVersions(documentId: string): Promise<DocumentVersion[]> {
@@ -489,6 +599,200 @@ export class DocumentsService {
       relations: ['creator'],
       order: { versionNumber: 'DESC' },
     });
+  }
+
+  // ─── Recycle Bin Operations ──────────────────────────────────
+
+  async getRecycleBin(user: User): Promise<{
+    folders: Folder[];
+    documents: Document[];
+  }> {
+    const isPrivileged = user.role === UserRole.ADMIN || user.role === 'supervisor';
+
+    // Admin/supervisor sees all deleted items; regular user sees only their own
+    const folderWhere: any = { isDeleted: true };
+    const docWhere: any = { isDeleted: true };
+    if (!isPrivileged) {
+      folderWhere.ownerId = user.id;
+      docWhere.deletedBy = user.id;
+    }
+
+    const folders = await this.folderRepository.find({
+      where: folderWhere,
+      relations: ['owner'],
+      order: { deletedAt: 'DESC' },
+    });
+
+    const documents = await this.documentRepository.find({
+      where: docWhere,
+      relations: ['creator', 'folder'],
+      order: { deletedAt: 'DESC' },
+    });
+
+    return { folders, documents };
+  }
+
+  async restoreDocument(id: string, user: User): Promise<Document> {
+    const doc = await this.documentRepository.findOne({
+      where: { id, isDeleted: true },
+    });
+    if (!doc) {
+      throw new NotFoundException('Silinmiş doküman bulunamadı');
+    }
+
+    const isPrivileged = user.role === UserRole.ADMIN || user.role === 'supervisor';
+    if (!isPrivileged && doc.deletedBy !== user.id) {
+      throw new ForbiddenException('Bu dokümanı geri yükleme yetkiniz yok');
+    }
+
+    // Check if parent folder still exists and is not deleted
+    const folder = await this.folderRepository.findOne({
+      where: { id: doc.folderId },
+    });
+    if (!folder || folder.isDeleted) {
+      throw new BadRequestException('Dokümanın bulunduğu klasör silinmiş. Önce klasörü geri yükleyin.');
+    }
+
+    doc.isDeleted = false;
+    doc.deletedAt = null;
+    doc.deletedBy = null;
+    const saved = await this.documentRepository.save(doc);
+    this.logger.log(`Document restored: ${doc.name} (${id})`);
+    return saved;
+  }
+
+  async permanentDeleteDocument(id: string, user: User): Promise<void> {
+    const isPrivileged = user.role === UserRole.ADMIN || user.role === 'supervisor';
+    if (!isPrivileged) {
+      throw new ForbiddenException('Kalıcı silme yetkisi sadece admin ve supervisor kullanıcılara aittir');
+    }
+
+    const doc = await this.documentRepository.findOne({
+      where: { id, isDeleted: true },
+    });
+    if (!doc) {
+      throw new NotFoundException('Silinmiş doküman bulunamadı');
+    }
+
+    // Permanently delete from MinIO
+    const versions = await this.versionRepository.find({ where: { documentId: id } });
+    const storageKeys = versions.map((v) => v.storageKey);
+    if (storageKeys.length > 0) {
+      await this.minioService.deleteObjects(storageKeys);
+    }
+
+    // Delete versions then document
+    await this.versionRepository.delete({ documentId: id });
+    await this.documentRepository.remove(doc);
+    this.logger.log(`Document permanently deleted: ${doc.name} (${id})`);
+  }
+
+  async restoreFolder(id: string, user: User): Promise<Folder> {
+    const folder = await this.folderRepository.findOne({
+      where: { id, isDeleted: true },
+    });
+    if (!folder) {
+      throw new NotFoundException('Silinmiş klasör bulunamadı');
+    }
+
+    const isPrivileged = user.role === UserRole.ADMIN || user.role === 'supervisor';
+    if (!isPrivileged && folder.deletedBy !== user.id) {
+      throw new ForbiddenException('Bu klasörü geri yükleme yetkiniz yok');
+    }
+
+    // If parent folder is deleted, move to root
+    if (folder.parentId) {
+      const parent = await this.folderRepository.findOne({ where: { id: folder.parentId } });
+      if (!parent || parent.isDeleted) {
+        folder.parentId = null;
+      }
+    }
+
+    // Restore folder and all its children + documents recursively
+    await this.restoreFolderCascade(id);
+
+    // Rebuild path after restore
+    folder.isDeleted = false;
+    folder.deletedAt = null;
+    folder.deletedBy = null;
+    folder.path = await this.buildPath(id);
+    const saved = await this.folderRepository.save(folder);
+    this.logger.log(`Folder restored (cascade): ${folder.name} (${id})`);
+    return saved;
+  }
+
+  private async restoreFolderCascade(folderId: string): Promise<void> {
+    // Restore documents in this folder
+    await this.documentRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isDeleted: false, deletedAt: null, deletedBy: null })
+      .where('folder_id = :folderId AND is_deleted = true', { folderId })
+      .execute();
+
+    // Restore child folders recursively
+    const children = await this.folderRepository.find({
+      where: { parentId: folderId, isDeleted: true },
+    });
+    for (const child of children) {
+      await this.restoreFolderCascade(child.id);
+    }
+
+    // Restore the folder itself
+    await this.folderRepository.update(folderId, {
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
+    });
+  }
+
+  async permanentDeleteFolder(id: string, user: User): Promise<void> {
+    const isPrivileged = user.role === UserRole.ADMIN || user.role === 'supervisor';
+    if (!isPrivileged) {
+      throw new ForbiddenException('Kalıcı silme yetkisi sadece admin ve supervisor kullanıcılara aittir');
+    }
+
+    const folder = await this.folderRepository.findOne({
+      where: { id, isDeleted: true },
+    });
+    if (!folder) {
+      throw new NotFoundException('Silinmiş klasör bulunamadı');
+    }
+
+    // Permanently delete cascade: children folders + their docs, then self + its docs
+    await this.permanentDeleteFolderCascade(id);
+    this.logger.log(`Folder permanently deleted (cascade): ${folder.name} (${id})`);
+  }
+
+  private async permanentDeleteFolderCascade(folderId: string): Promise<void> {
+    // Delete child folders recursively first
+    const children = await this.folderRepository.find({
+      where: { parentId: folderId },
+    });
+    for (const child of children) {
+      await this.permanentDeleteFolderCascade(child.id);
+    }
+
+    // Delete documents in this folder (from MinIO + DB)
+    const docs = await this.documentRepository.find({ where: { folderId } });
+    for (const doc of docs) {
+      const versions = await this.versionRepository.find({ where: { documentId: doc.id } });
+      const storageKeys = versions.map((v) => v.storageKey);
+      if (storageKeys.length > 0) {
+        await this.minioService.deleteObjects(storageKeys);
+      }
+      await this.versionRepository.delete({ documentId: doc.id });
+      await this.documentRepository.remove(doc);
+    }
+
+    // Delete access rules for this folder
+    await this.accessRuleRepository.delete({
+      resourceType: ResourceType.FOLDER,
+      resourceId: folderId,
+    });
+
+    // Delete the folder
+    await this.folderRepository.delete(folderId);
   }
 
   // ─── ONLYOFFICE Editor Operations ────────────────────────────
@@ -679,6 +983,53 @@ export class DocumentsService {
     return filename.substring(lastDot);
   }
 
+  // ─── My Permissions ──────────────────────────────────────────
+
+  async getMyPermissions(
+    folderId: string,
+    user: User,
+  ): Promise<{ read: boolean; write: boolean; delete: boolean; manage: boolean }> {
+    if (user.role === UserRole.ADMIN) {
+      return { read: true, write: true, delete: true, manage: true };
+    }
+
+    const folder = await this.folderRepository.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Klasör bulunamadı');
+
+    if (folder.ownerId === user.id) {
+      return { read: true, write: true, delete: true, manage: true };
+    }
+
+    const result = { read: false, write: false, delete: false, manage: false };
+    const permTypes = ['read', 'write', 'delete', 'manage'] as const;
+
+    for (const perm of permTypes) {
+      const direct = await this.accessService.checkPermission(
+        user.id, user, ResourceType.FOLDER, folderId, perm,
+      );
+      if (direct.allowed) {
+        result[perm] = true;
+        continue;
+      }
+
+      // Ancestor check (inheritance)
+      if (folder.path) {
+        const ancestorIds = folder.path.split('/').filter(id => id && id !== folderId);
+        for (const ancestorId of ancestorIds) {
+          const r = await this.accessService.checkPermission(
+            user.id, user, ResourceType.FOLDER, ancestorId, perm,
+          );
+          if (r.allowed) {
+            result[perm] = true;
+            break;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────
 
   private async buildPath(folderId: string): Promise<string> {
@@ -692,6 +1043,42 @@ export class DocumentsService {
     }
 
     return parts.join('/');
+  }
+
+  // ─── Permission Enforcement ──────────────────────────────────
+
+  private async enforceFolderPermission(
+    user: User,
+    folderId: string,
+    permission: string,
+    opts?: { creatorId?: string; ownerId?: string },
+  ): Promise<void> {
+    if (user.role === UserRole.ADMIN) return;
+    // Document creator bypass
+    if (opts?.creatorId && opts.creatorId === user.id) return;
+
+    // Always load folder for owner check + path (needed for inheritance)
+    const folder = await this.folderRepository.findOne({ where: { id: folderId } });
+    if (folder && folder.ownerId === user.id) return;
+
+    // Check direct permission on this folder
+    const directResult = await this.accessService.checkPermission(
+      user.id, user, ResourceType.FOLDER, folderId, permission,
+    );
+    if (directResult.allowed) return;
+
+    // Check inherited permission from ancestor folders
+    if (folder?.path) {
+      const ancestorIds = folder.path.split('/').filter(id => id && id !== folderId);
+      for (const ancestorId of ancestorIds) {
+        const result = await this.accessService.checkPermission(
+          user.id, user, ResourceType.FOLDER, ancestorId, permission,
+        );
+        if (result.allowed) return;
+      }
+    }
+
+    throw new ForbiddenException('Bu işlem için yetkiniz yok');
   }
 
   // ─── Folder Permission Operations ─────────────────────────────

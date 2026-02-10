@@ -142,6 +142,14 @@ export const usersApi = {
   },
 
   /**
+   * Kullanıcının gruplarını getir
+   */
+  async getUserGroups(userId: string): Promise<any[]> {
+    const response = await api.get(`/users/${userId}/groups`);
+    return response.data;
+  },
+
+  /**
    * Kullanıcıyı sil
    */
   async deleteUser(id: string): Promise<void> {

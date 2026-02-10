@@ -13,6 +13,7 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Check,
   AlertCircle,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { usersApi, RoleLabels, RoleColors } from '../../services/usersApi';
 import type { User, UserRole, UserStats } from '../../services/usersApi';
+import { groupsApi } from '../../services/groupsApi';
 
 type TabType = 'all' | 'admins' | 'users' | 'inactive';
 
@@ -31,6 +33,7 @@ export default function UsersAdmin() {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editRole, setEditRole] = useState<UserRole>('user');
+  const [groupsUser, setGroupsUser] = useState<User | null>(null);
   const [page, setPage] = useState(1);
   const limit = 15;
 
@@ -414,6 +417,13 @@ export default function UsersAdmin() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <button
+                          onClick={() => setGroupsUser(user)}
+                          className="p-1.5 text-gray-400 hover:text-[#1890FF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                          title="Gruplar"
+                        >
+                          <Users className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleEditRole(user)}
                           className="p-1.5 text-gray-400 hover:text-[#1890FF] hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
                           title="Rol Değiştir"
@@ -583,6 +593,200 @@ export default function UsersAdmin() {
           </div>
         </div>
       )}
+
+      {/* User Groups Modal */}
+      {groupsUser && (
+        <UserGroupsModal
+          user={groupsUser}
+          onClose={() => setGroupsUser(null)}
+          getInitials={getInitials}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserGroupsModal({
+  user,
+  onClose,
+  getInitials,
+}: {
+  user: User;
+  onClose: () => void;
+  getInitials: (name: string) => string;
+}) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const { data: allGroups = [], isLoading: groupsLoading } = useQuery({
+    queryKey: ['allGroups'],
+    queryFn: () => groupsApi.getAll(),
+  });
+
+  const { data: userGroups = [], isLoading: userGroupsLoading } = useQuery({
+    queryKey: ['userGroups', user.id],
+    queryFn: () => usersApi.getUserGroups(user.id),
+  });
+
+  const memberGroupIds = new Set(userGroups.map((ug: any) => ug.groupId || ug.group?.id));
+
+  // Build tree: filter out project subgroups, then build parent→children map
+  const nonProjectGroups = allGroups.filter((g: any) => !g.projectId);
+  const groupMap = new Map(nonProjectGroups.map((g: any) => [g.id, g]));
+  const childrenMap = new Map<string | null, any[]>();
+  for (const g of nonProjectGroups) {
+    const pid = g.parentId && groupMap.has(g.parentId) ? g.parentId : null;
+    if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+    childrenMap.get(pid)!.push(g);
+  }
+  const rootGroups = childrenMap.get(null) || [];
+
+  const toggleCollapse = (id: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggle = async (groupId: string, isMember: boolean) => {
+    setBusy(groupId);
+    try {
+      if (isMember) {
+        await groupsApi.removeMember(groupId, user.id);
+      } else {
+        await groupsApi.addMember(groupId, user.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['userGroups', user.id] });
+      queryClient.invalidateQueries({ queryKey: ['allGroups'] });
+    } catch (err: any) {
+      // silently handle
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const loading = groupsLoading || userGroupsLoading;
+
+  const renderNode = (group: any, depth: number) => {
+    const children = childrenMap.get(group.id) || [];
+    const hasChildren = children.length > 0;
+    const isCollapsed = collapsed.has(group.id);
+    const isMember = memberGroupIds.has(group.id);
+    const isBusy = busy === group.id;
+
+    return (
+      <div key={group.id}>
+        <div
+          className={`flex items-center gap-2 py-2 px-3 rounded-lg transition-colors ${
+            isMember
+              ? 'bg-blue-50 dark:bg-blue-900/20'
+              : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+          style={{ paddingLeft: `${12 + depth * 20}px` }}
+        >
+          {/* Expand/collapse toggle */}
+          {hasChildren ? (
+            <button
+              onClick={() => toggleCollapse(group.id)}
+              className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+            >
+              {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          ) : (
+            <span className="w-5 flex-shrink-0" />
+          )}
+
+          {/* Checkbox */}
+          <input
+            type="checkbox"
+            checked={isMember}
+            onChange={() => handleToggle(group.id, isMember)}
+            disabled={isBusy}
+            className="rounded border-gray-300 dark:border-gray-600 text-[#1890FF] focus:ring-[#1890FF] flex-shrink-0"
+          />
+
+          {/* Label */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-gray-900 dark:text-white text-sm truncate">{group.name}</span>
+              {group.isSystem && (
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded flex-shrink-0">
+                  Sistem
+                </span>
+              )}
+              {group.memberCount != null && (
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
+                  ({group.memberCount})
+                </span>
+              )}
+            </div>
+            {group.description && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{group.description}</p>
+            )}
+          </div>
+
+          {isBusy && <Loader2 className="w-4 h-4 animate-spin text-[#1890FF] flex-shrink-0" />}
+        </div>
+
+        {/* Children */}
+        {hasChildren && !isCollapsed && children.map((child: any) => renderNode(child, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-md mx-4 shadow-xl max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Grup Atamalari</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#1890FF] flex items-center justify-center text-white font-medium">
+              {getInitials(user.displayName)}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 dark:text-white">{user.displayName || user.adUsername}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{user.department || user.adUsername}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-[#1890FF]" />
+            </div>
+          ) : rootGroups.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400 text-center py-8">Henuz grup yok</p>
+          ) : (
+            <div className="space-y-0.5">
+              {rootGroups.map((group: any) => renderNode(group, 0))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {memberGroupIds.size} grup uyesi
+          </span>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm bg-[#1890FF] text-white rounded-lg hover:bg-blue-600"
+          >
+            Kapat
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

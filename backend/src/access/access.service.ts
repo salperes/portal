@@ -170,6 +170,71 @@ export class AccessService {
   }
 
   /**
+   * Batch check: which folder IDs are accessible to the user?
+   * - No read rules on folder → visible (default open)
+   * - Has read rules → only if user matches a GRANT (and no DENY)
+   * - Admin → all visible
+   */
+  async getAccessibleFolderIds(user: User, folderIds: string[]): Promise<Set<string>> {
+    if (user.role === UserRole.ADMIN) return new Set(folderIds);
+    if (folderIds.length === 0) return new Set();
+
+    // Load all folder rules in one query
+    const rules = await this.ruleRepository
+      .createQueryBuilder('r')
+      .where('r.resource_type = :type', { type: ResourceType.FOLDER })
+      .andWhere('r.resource_id IN (:...ids)', { ids: folderIds })
+      .getMany();
+
+    // If no rules at all, no folders are accessible (default: closed)
+    if (rules.length === 0) return new Set();
+
+    // Load user's groups + project assignments
+    const userGroups = await this.userGroupRepository.find({ where: { userId: user.id } });
+    const groupIds = userGroups.map(ug => ug.groupId);
+    const projectAssignments = await this.assignmentRepository.find({ where: { userId: user.id } });
+
+    // Group rules by folder
+    const rulesByFolder = new Map<string, AccessRule[]>();
+    for (const rule of rules) {
+      if (!rulesByFolder.has(rule.resourceId)) rulesByFolder.set(rule.resourceId, []);
+      rulesByFolder.get(rule.resourceId)!.push(rule);
+    }
+
+    const allowed = new Set<string>();
+
+    for (const folderId of folderIds) {
+      const folderRules = rulesByFolder.get(folderId);
+
+      // No rules for this folder → default closed (only admin + owner)
+      if (!folderRules || folderRules.length === 0) {
+        continue;
+      }
+
+      // Filter to read permission rules
+      const readRules = folderRules.filter(r => r.permissions.includes('read'));
+      if (readRules.length === 0) {
+        continue;
+      }
+
+      // Check deny first
+      const denied = readRules.some(r =>
+        r.ruleType === RuleType.DENY && this.ruleMatchesUser(r, user.id, user, groupIds, projectAssignments),
+      );
+      if (denied) continue;
+
+      // Check grant
+      const granted = readRules.some(r =>
+        r.ruleType === RuleType.GRANT && this.ruleMatchesUser(r, user.id, user, groupIds, projectAssignments),
+      );
+      if (granted) allowed.add(folderId);
+      // else: default deny (has rules but user doesn't match any grant)
+    }
+
+    return allowed;
+  }
+
+  /**
    * Get all users who can access a resource
    */
   async getResourceAccessors(resourceType: ResourceType, resourceId: string): Promise<AccessRule[]> {

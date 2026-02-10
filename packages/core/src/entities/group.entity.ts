@@ -38,6 +38,9 @@ export class Group {
   @JoinColumn({ name: 'project_id' })
   project: Project | null;
 
+  @Column({ name: 'is_system', default: false })
+  isSystem: boolean;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

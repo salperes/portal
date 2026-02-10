@@ -46,9 +46,9 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Klasör oluştur' })
   createFolder(
     @Body() dto: CreateFolderDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: User,
   ) {
-    return this.documentsService.createFolder(dto, userId);
+    return this.documentsService.createFolder(dto, user);
   }
 
   @Get('folders')
@@ -60,8 +60,9 @@ export class DocumentsController {
     @Query('parentId') parentId?: string,
     @Query('projectId') projectId?: string,
     @Query('all') all?: string,
+    @CurrentUser() user?: User,
   ) {
-    return this.documentsService.findFolders({ parentId, projectId, all: all === 'true' });
+    return this.documentsService.findFolders({ parentId, projectId, all: all === 'true', user });
   }
 
   @Get('folders/:id')
@@ -82,19 +83,32 @@ export class DocumentsController {
     return this.documentsService.getFolderBreadcrumb(id);
   }
 
+  @Get('folders/:id/my-permissions')
+  @ApiOperation({ summary: 'Kullanıcının klasör üzerindeki etkin izinleri' })
+  getMyPermissions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.getMyPermissions(id, user);
+  }
+
   @Patch('folders/:id')
   @ApiOperation({ summary: 'Klasör güncelle' })
   updateFolder(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateFolderDto,
+    @CurrentUser() user: User,
   ) {
-    return this.documentsService.updateFolder(id, dto);
+    return this.documentsService.updateFolder(id, dto, user);
   }
 
   @Delete('folders/:id')
   @ApiOperation({ summary: 'Klasör sil' })
-  removeFolder(@Param('id', ParseUUIDPipe) id: string) {
-    return this.documentsService.removeFolder(id);
+  removeFolder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.removeFolder(id, user);
   }
 
   // ─── Folder Permission Endpoints ───────────────────────────────
@@ -125,15 +139,43 @@ export class DocumentsController {
     return this.documentsService.removeFolderPermission(id, ruleId, user.id, user.role);
   }
 
+  // ─── Folder Restore / Permanent Delete ─────────────────────
+
+  @Post('folders/:id/restore')
+  @ApiOperation({ summary: 'Silinmiş klasörü geri yükle' })
+  restoreFolder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.restoreFolder(id, user);
+  }
+
+  @Delete('folders/:id/permanent')
+  @ApiOperation({ summary: 'Silinmiş klasörü kalıcı olarak sil (admin/supervisor)' })
+  permanentDeleteFolder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.permanentDeleteFolder(id, user);
+  }
+
+  // ─── Recycle Bin ──────────────────────────────────────────────
+
+  @Get('recycle-bin')
+  @ApiOperation({ summary: 'Çöp kutusundaki öğeleri listele' })
+  getRecycleBin(@CurrentUser() user: User) {
+    return this.documentsService.getRecycleBin(user);
+  }
+
   // ─── Document Endpoints ──────────────────────────────────────
 
   @Post('create-new')
   @ApiOperation({ summary: 'Yeni boş dosya oluştur (Word, Excel, PowerPoint, Text)' })
   createNewDocument(
     @Body() dto: CreateNewDocumentDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: User,
   ) {
-    return this.documentsService.createEmptyDocument(dto, userId);
+    return this.documentsService.createEmptyDocument(dto, user);
   }
 
   @Post('upload')
@@ -161,9 +203,9 @@ export class DocumentsController {
     )
     file: Express.Multer.File,
     @Body() dto: UploadDocumentDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: User,
   ) {
-    return this.documentsService.uploadDocument(file, dto, userId);
+    return this.documentsService.uploadDocument(file, dto, user);
   }
 
   @Get()
@@ -177,12 +219,14 @@ export class DocumentsController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @CurrentUser() user?: User,
   ) {
     return this.documentsService.findDocuments({
       folderId,
       search,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 50,
+      user,
     });
   }
 
@@ -231,6 +275,26 @@ export class DocumentsController {
     return { error: 0 };
   }
 
+  // ─── Document Restore / Permanent Delete ───────────────────
+
+  @Post(':id/restore')
+  @ApiOperation({ summary: 'Silinmiş dokümanı geri yükle' })
+  restoreDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.restoreDocument(id, user);
+  }
+
+  @Delete(':id/permanent')
+  @ApiOperation({ summary: 'Silinmiş dokümanı kalıcı olarak sil (admin/supervisor)' })
+  permanentDeleteDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.permanentDeleteDocument(id, user);
+  }
+
   // ─── Document Detail & CRUD ─────────────────────────────────
 
   @Get(':id')
@@ -243,9 +307,10 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Doküman indir' })
   async downloadDocument(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
     @Res() res: Response,
   ) {
-    const { buffer, document } = await this.documentsService.downloadDocument(id);
+    const { buffer, document } = await this.documentsService.downloadDocument(id, user);
 
     res.setHeader('Content-Type', document.mimeType);
     res.setHeader(
@@ -261,14 +326,18 @@ export class DocumentsController {
   updateDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDocumentDto,
+    @CurrentUser() user: User,
   ) {
-    return this.documentsService.updateDocument(id, dto);
+    return this.documentsService.updateDocument(id, dto, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Doküman sil' })
-  removeDocument(@Param('id', ParseUUIDPipe) id: string) {
-    return this.documentsService.removeDocument(id);
+  removeDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.documentsService.removeDocument(id, user);
   }
 
   // ─── Version Endpoints ───────────────────────────────────────
@@ -297,10 +366,10 @@ export class DocumentsController {
       }),
     )
     file: Express.Multer.File,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: User,
     @Body('changeNote') changeNote?: string,
   ) {
-    return this.documentsService.uploadNewVersion(id, file, userId, changeNote);
+    return this.documentsService.uploadNewVersion(id, file, user, changeNote);
   }
 
   @Get(':id/versions')
