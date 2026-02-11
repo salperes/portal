@@ -258,6 +258,14 @@ export function canOpenWithXRayViewer(extension?: string): boolean {
 }
 
 /**
+ * Check if a file is an image that can be shown as thumbnail
+ */
+export function isImageFile(extension?: string): boolean {
+  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+  return imageExtensions.includes(extension?.toLowerCase() || '');
+}
+
+/**
  * Check if a file can be opened with CAD Viewer (DWG/DXF)
  */
 export function canOpenWithCadViewer(extension?: string): boolean {

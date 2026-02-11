@@ -74,6 +74,9 @@ export class User {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  settings: Record<string, any>;
+
   @Column({ name: 'last_login', nullable: true })
   lastLogin: Date;
 

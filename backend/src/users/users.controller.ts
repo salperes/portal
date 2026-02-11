@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Put,
   Patch,
   Delete,
   Param,
@@ -84,6 +85,23 @@ export class UsersController {
         { value: UserRole.ADMIN, label: 'Admin', level: 4 },
       ],
     };
+  }
+
+  @Get('me/settings')
+  @ApiOperation({ summary: 'Kendi kullanıcı ayarlarını getir' })
+  async getMySettings(@CurrentUser() user: User): Promise<{ settings: Record<string, any> }> {
+    const settings = await this.usersService.getMySettings(user.id);
+    return { settings };
+  }
+
+  @Put('me/settings')
+  @ApiOperation({ summary: 'Kendi kullanıcı ayarlarını güncelle' })
+  async updateMySettings(
+    @CurrentUser() user: User,
+    @Body() body: { settings: Record<string, any> },
+  ): Promise<{ settings: Record<string, any> }> {
+    const settings = await this.usersService.updateMySettings(user.id, body.settings);
+    return { settings };
   }
 
   @Get(':id/groups')

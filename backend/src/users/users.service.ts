@@ -66,6 +66,31 @@ export class UsersService {
   }
 
   /**
+   * Kullanıcının kendi ayarlarını getir
+   */
+  async getMySettings(userId: string): Promise<Record<string, any>> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Kullanıcı bulunamadı');
+    }
+    return user.settings || {};
+  }
+
+  /**
+   * Kullanıcının kendi ayarlarını güncelle
+   */
+  async updateMySettings(userId: string, settings: Record<string, any>): Promise<Record<string, any>> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Kullanıcı bulunamadı');
+    }
+    user.settings = settings;
+    await this.userRepository.save(user);
+    this.logger.log(`User settings updated for ${user.adUsername}`);
+    return user.settings;
+  }
+
+  /**
    * Kullanıcı detayı
    */
   async findOne(id: string): Promise<UserResponseDto> {

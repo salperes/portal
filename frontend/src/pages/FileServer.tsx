@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { ResizablePanels } from '../components/ResizablePanels';
 import {
   Folder,
   File,
@@ -21,13 +22,14 @@ import {
   Pen,
 } from 'lucide-react';
 import { useFileServerStore } from '../store/fileServerStore';
-import { formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithXRayViewer, canOpenWithCadViewer, fileServerApi } from '../services/fileServerApi';
+import { formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithXRayViewer, canOpenWithCadViewer, isImageFile, fileServerApi } from '../services/fileServerApi';
 import type { FileItem } from '../services/fileServerApi';
 import DocumentViewer from '../components/DocumentViewer';
 import DocumentViewerErrorBoundary from '../components/DocumentViewerErrorBoundary';
 import { XRayViewer } from '../components/documents/XRayViewer';
 import { CadViewer } from '../components/documents/CadViewer';
 import FileServerSidebar from '../components/file-server/FileServerSidebar';
+import { ImageThumbnail } from '../components/ImageThumbnail';
 
 export default function FileServer() {
   const {
@@ -39,9 +41,12 @@ export default function FileServer() {
     isLoading,
     error,
     viewMode,
+    showThumbnails,
+    setShowThumbnails,
     treeData,
     expandedNodes,
     treeLoading,
+    favorites,
     loadShares,
     selectShare,
     navigateTo,
@@ -56,6 +61,11 @@ export default function FileServer() {
     uploadFiles,
     downloadFile,
     toggleNode,
+    addFavorite,
+    removeFavorite,
+    isFavorite,
+    loadFavorites,
+    expandFavorites,
   } = useFileServerStore();
 
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
@@ -67,9 +77,16 @@ export default function FileServer() {
   const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const favoritesExpandedRef = useRef(false);
+
   useEffect(() => {
-    loadShares();
-  }, [loadShares]);
+    Promise.all([loadShares(), loadFavorites()]).then(() => {
+      if (!favoritesExpandedRef.current) {
+        favoritesExpandedRef.current = true;
+        expandFavorites();
+      }
+    });
+  }, [loadShares, loadFavorites, expandFavorites]);
 
   const handleFileUpload = useCallback(
     (files: FileList | null) => {
@@ -195,6 +212,14 @@ export default function FileServer() {
     toggleNode(share, path);
   };
 
+  const handleToggleFavorite = (share: string, path: string) => {
+    if (isFavorite(share, path)) {
+      removeFavorite(share, path);
+    } else {
+      addFavorite(share, path);
+    }
+  };
+
   const breadcrumbs = currentPath ? currentPath.split(/[/\\]/).filter(Boolean) : [];
 
   return (
@@ -220,9 +245,9 @@ export default function FileServer() {
       </div>
 
       {/* Two-panel layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 mt-4">
-        {/* Left panel - Sidebar */}
-        <div className="col-span-3 hidden lg:block min-h-0 overflow-hidden">
+      <ResizablePanels
+        storageKey="fileserver"
+        left={
           <FileServerSidebar
             shares={shares}
             currentShare={currentShare}
@@ -230,16 +255,18 @@ export default function FileServer() {
             treeData={treeData}
             expandedNodes={expandedNodes}
             treeLoading={treeLoading}
+            favorites={favorites}
             onSelectNode={handleSidebarSelectNode}
             onToggleNode={handleSidebarToggleNode}
+            onToggleFavorite={handleToggleFavorite}
+            isFavorite={isFavorite}
             onRefresh={() => { loadShares(); }}
             isLoading={isLoading && shares.length === 0}
           />
-        </div>
-
-        {/* Right panel - Content */}
+        }
+        right={
         <div
-          className="col-span-12 lg:col-span-9 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden"
+          className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden h-full"
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -324,6 +351,15 @@ export default function FileServer() {
                     >
                       <LayoutGrid size={16} />
                     </button>
+                    <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 cursor-pointer ml-1">
+                      <input
+                        type="checkbox"
+                        checked={showThumbnails}
+                        onChange={(e) => setShowThumbnails(e.target.checked)}
+                        className="rounded w-3.5 h-3.5"
+                      />
+                      Thumbnail
+                    </label>
                     <button
                       onClick={refresh}
                       disabled={isLoading}
@@ -430,6 +466,12 @@ export default function FileServer() {
                         <div className="col-span-5 flex items-center gap-2 truncate">
                           {item.isDirectory ? (
                             <Folder className="text-yellow-500 flex-shrink-0" />
+                          ) : showThumbnails && isImageFile(item.extension) ? (
+                            <ImageThumbnail
+                              fetchBlob={() => fileServerApi.download(currentShare!, currentPath ? `${currentPath}/${item.name}` : item.name)}
+                              alt={item.name}
+                              size="md"
+                            />
                           ) : canOpenWithXRayViewer(item.extension) ? (
                             <Scan className="text-cyan-500 flex-shrink-0" />
                           ) : canOpenWithCadViewer(item.extension) ? (
@@ -554,6 +596,14 @@ export default function FileServer() {
                           )}
                           {item.isDirectory ? (
                             <Folder className="w-10 h-10 mx-auto mb-2 text-yellow-500" />
+                          ) : showThumbnails && isImageFile(item.extension) ? (
+                            <div className="mx-auto mb-2">
+                              <ImageThumbnail
+                                fetchBlob={() => fileServerApi.download(currentShare!, currentPath ? `${currentPath}/${item.name}` : item.name)}
+                                alt={item.name}
+                                size="lg"
+                              />
+                            </div>
                           ) : canOpenWithXRayViewer(item.extension) ? (
                             <Scan className="w-10 h-10 mx-auto mb-2 text-cyan-500" />
                           ) : canOpenWithCadViewer(item.extension) ? (
@@ -587,7 +637,8 @@ export default function FileServer() {
             </div>
           )}
         </div>
-      </div>
+        }
+      />
 
       {/* Document Viewer Modal */}
       {documentToView && (

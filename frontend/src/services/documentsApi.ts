@@ -209,6 +209,11 @@ export const documentsApi = {
     window.URL.revokeObjectURL(url);
   },
 
+  getDocumentBlob: async (docId: string): Promise<Blob> => {
+    const response = await api.get(`/documents/${docId}/download`, { responseType: 'blob' });
+    return response.data;
+  },
+
   downloadDocumentBuffer: async (docId: string): Promise<ArrayBuffer> => {
     const response = await api.get(`/documents/${docId}/download`, { responseType: 'arraybuffer' });
     return response.data;
@@ -290,6 +295,15 @@ const xrayExtensions = ['tif', 'tiff', 'xtif'];
 export function canOpenWithXRayViewer(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   return xrayExtensions.includes(ext);
+}
+
+// ─── Image File Type Helpers ─────────────────────────────────
+
+const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+
+export function isImageFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return imageExtensions.includes(ext);
 }
 
 // ─── Folder Permission Types ────────────────────────────────

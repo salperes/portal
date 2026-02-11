@@ -3,11 +3,13 @@ import { create } from 'zustand';
 interface DocumentsUIState {
   currentFolderId: string | null;
   viewMode: 'list' | 'grid';
+  showThumbnails: boolean;
   selectedDocIds: Set<string>;
   searchQuery: string;
 
   setCurrentFolder: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'grid') => void;
+  setShowThumbnails: (show: boolean) => void;
   toggleSelectDoc: (id: string) => void;
   selectAllDocs: (ids: string[]) => void;
   clearSelection: () => void;
@@ -17,11 +19,13 @@ interface DocumentsUIState {
 export const useDocumentsStore = create<DocumentsUIState>((set, get) => ({
   currentFolderId: null,
   viewMode: 'list',
+  showThumbnails: false,
   selectedDocIds: new Set(),
   searchQuery: '',
 
   setCurrentFolder: (id) => set({ currentFolderId: id, selectedDocIds: new Set() }),
   setViewMode: (mode) => set({ viewMode: mode }),
+  setShowThumbnails: (show) => set({ showThumbnails: show }),
   toggleSelectDoc: (id) => {
     const selected = new Set(get().selectedDocIds);
     if (selected.has(id)) {

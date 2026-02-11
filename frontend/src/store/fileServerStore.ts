@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { fileServerApi } from '../services/fileServerApi';
+import { userSettingsApi } from '../services/userSettingsApi';
 import type { FileItem, ShareItem } from '../services/fileServerApi';
+
+interface FavoriteFolder {
+  share: string;
+  path: string;
+  name: string; // display name (last segment or share name)
+}
+
+const FS_FAVORITES_KEY = 'fs-favorites'; // localStorage key for migration
+const MAX_FAVORITES = 10;
 
 interface FileServerState {
   // Data
@@ -15,10 +25,14 @@ interface FileServerState {
   expandedNodes: Set<string>; // key = "share:path"
   treeLoading: Set<string>; // nodes currently being loaded
 
+  // Favorites
+  favorites: FavoriteFolder[];
+
   // UI State
   isLoading: boolean;
   error: string | null;
   viewMode: 'list' | 'grid';
+  showThumbnails: boolean;
 
   // Actions
   loadShares: () => Promise<void>;
@@ -30,6 +44,7 @@ interface FileServerState {
   selectAll: () => void;
   clearSelection: () => void;
   setViewMode: (mode: 'list' | 'grid') => void;
+  setShowThumbnails: (show: boolean) => void;
   deleteSelected: () => Promise<void>;
   createFolder: (name: string) => Promise<void>;
   uploadFiles: (files: FileList) => Promise<void>;
@@ -39,6 +54,13 @@ interface FileServerState {
   expandNode: (share: string, path: string) => Promise<void>;
   collapseNode: (share: string, path: string) => void;
   toggleNode: (share: string, path: string) => Promise<void>;
+
+  // Favorite actions
+  loadFavorites: () => Promise<void>;
+  addFavorite: (share: string, path: string) => void;
+  removeFavorite: (share: string, path: string) => void;
+  isFavorite: (share: string, path: string) => boolean;
+  expandFavorites: () => Promise<void>;
 }
 
 export const useFileServerStore = create<FileServerState>((set, get) => ({
@@ -51,9 +73,11 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
   treeData: {},
   expandedNodes: new Set(),
   treeLoading: new Set(),
+  favorites: [],
   isLoading: false,
   error: null,
   viewMode: 'list',
+  showThumbnails: false,
 
   loadShares: async () => {
     set({ isLoading: true, error: null });
@@ -184,6 +208,10 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
     set({ viewMode: mode });
   },
 
+  setShowThumbnails: (show: boolean) => {
+    set({ showThumbnails: show });
+  },
+
   deleteSelected: async () => {
     const { currentShare, currentPath, items, selectedItems } = get();
     if (!currentShare || selectedItems.size === 0) return;
@@ -301,6 +329,84 @@ export const useFileServerStore = create<FileServerState>((set, get) => ({
       get().collapseNode(share, path);
     } else {
       await get().expandNode(share, path);
+    }
+  },
+
+  // Favorite actions
+  loadFavorites: async () => {
+    try {
+      const settings = await userSettingsApi.getSettings();
+      let favorites: FavoriteFolder[] = settings.fileServerFavorites || [];
+
+      // Migrate from localStorage if DB is empty but localStorage has data
+      if (favorites.length === 0) {
+        try {
+          const raw = localStorage.getItem(FS_FAVORITES_KEY);
+          const localFavs: FavoriteFolder[] = raw ? JSON.parse(raw) : [];
+          if (localFavs.length > 0) {
+            favorites = localFavs;
+            // Save to DB and clear localStorage
+            await userSettingsApi.saveSettings({ ...settings, fileServerFavorites: favorites });
+            localStorage.removeItem(FS_FAVORITES_KEY);
+          }
+        } catch { /* ignore localStorage errors */ }
+      }
+
+      set({ favorites });
+    } catch {
+      // Fallback: try localStorage if API fails (e.g. not logged in yet)
+      try {
+        const raw = localStorage.getItem(FS_FAVORITES_KEY);
+        set({ favorites: raw ? JSON.parse(raw) : [] });
+      } catch {
+        set({ favorites: [] });
+      }
+    }
+  },
+
+  addFavorite: (share: string, path: string) => {
+    const { favorites } = get();
+    if (favorites.length >= MAX_FAVORITES) return;
+    if (favorites.some(f => f.share === share && f.path === path)) return;
+    const name = path ? path.split('/').filter(Boolean).pop() || share : share;
+    const newFavorites = [...favorites, { share, path, name }];
+    set({ favorites: newFavorites });
+    // Save to server (fire-and-forget)
+    userSettingsApi.getSettings().then(settings => {
+      userSettingsApi.saveSettings({ ...settings, fileServerFavorites: newFavorites });
+    }).catch(() => {});
+  },
+
+  removeFavorite: (share: string, path: string) => {
+    const newFavorites = get().favorites.filter(f => !(f.share === share && f.path === path));
+    set({ favorites: newFavorites });
+    // Save to server (fire-and-forget)
+    userSettingsApi.getSettings().then(settings => {
+      userSettingsApi.saveSettings({ ...settings, fileServerFavorites: newFavorites });
+    }).catch(() => {});
+  },
+
+  isFavorite: (share: string, path: string) => {
+    return get().favorites.some(f => f.share === share && f.path === path);
+  },
+
+  expandFavorites: async () => {
+    const { favorites } = get();
+    if (favorites.length === 0) return;
+
+    for (const fav of favorites) {
+      // Expand share root
+      await get().expandNode(fav.share, '');
+
+      // Expand each ancestor path
+      if (fav.path) {
+        const parts = fav.path.split('/').filter(Boolean);
+        let accumulated = '';
+        for (const part of parts) {
+          accumulated = accumulated ? `${accumulated}/${part}` : part;
+          await get().expandNode(fav.share, accumulated);
+        }
+      }
     }
   },
 }));

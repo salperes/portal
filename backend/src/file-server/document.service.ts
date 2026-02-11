@@ -355,15 +355,14 @@ export class DocumentService {
 
   /**
    * Generate a unique document key (without timestamp for collaborative editing)
+   * Key must be under 128 chars (ONLYOFFICE DB limit is varchar(255) but
+   * some versions enforce 128). We use hash only - share/path is in Redis.
    */
   private generateDocumentKey(share: string, path: string): string {
-    // Use random component instead of timestamp to ensure uniqueness per session
     const randomPart = crypto.randomBytes(8).toString('hex');
     const data = `${share}:${path}:${randomPart}`;
-    const hash = crypto.createHash('md5').update(data).digest('hex').substring(0, 20);
-    // Encode share and path in the key for later retrieval
-    const encoded = Buffer.from(JSON.stringify({ share, path })).toString('base64url');
-    return `${hash}_${encoded}`;
+    const hash = crypto.createHash('md5').update(data).digest('hex');
+    return `${hash}_${randomPart}`;
   }
 
   /**

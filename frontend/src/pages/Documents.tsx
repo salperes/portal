@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { ResizablePanels } from '../components/ResizablePanels';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText,
@@ -24,7 +25,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useDocumentsStore } from '../store/documentsStore';
-import { documentsApi, formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithCadViewer, canOpenWithXRayViewer } from '../services/documentsApi';
+import { documentsApi, formatFileSize, canOpenWithOnlyOffice, canEditWithOnlyOffice, canOpenWithCadViewer, canOpenWithXRayViewer, isImageFile } from '../services/documentsApi';
 import type { FolderInfo, DocumentInfo, DocumentVersionInfo, FolderPermissions } from '../services/documentsApi';
 import { useAuthStore } from '../store/authStore';
 import DocumentsSidebar from '../components/documents/DocumentsSidebar';
@@ -39,10 +40,11 @@ import {
 import { PermissionsModal } from '../components/documents/PermissionsModal';
 import { CadViewer } from '../components/documents/CadViewer';
 import { XRayViewer } from '../components/documents/XRayViewer';
+import { ImageThumbnail } from '../components/ImageThumbnail';
 
 export default function Documents() {
   const queryClient = useQueryClient();
-  const { currentFolderId, setCurrentFolder, viewMode, setViewMode, searchQuery, setSearchQuery } =
+  const { currentFolderId, setCurrentFolder, viewMode, setViewMode, showThumbnails, setShowThumbnails, searchQuery, setSearchQuery } =
     useDocumentsStore();
   const authUser = useAuthStore((s) => s.user);
 
@@ -322,9 +324,10 @@ export default function Documents() {
       </div>
 
       {/* Two-panel layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 mt-4">
-        {/* Left panel - Folder tree */}
-        <div ref={sidebarRef} className="col-span-3 hidden lg:block min-h-0 overflow-hidden">
+      <ResizablePanels
+        storageKey="documents"
+        leftRef={sidebarRef}
+        left={
           <DocumentsSidebar
             folders={allFolders}
             currentFolderId={currentFolderId}
@@ -333,11 +336,10 @@ export default function Documents() {
             onFolderContextMenu={(e, folderId) => handleContextMenu(e, folderId, 'folder')}
             isLoading={foldersLoading}
           />
-        </div>
-
-        {/* Right panel - Content */}
+        }
+        right={
         <div
-          className="col-span-12 lg:col-span-9 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden"
+          className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col min-h-0 overflow-hidden h-full"
           onDrop={handleDrop}
           onDragOver={(e) => {
             e.preventDefault();
@@ -395,6 +397,15 @@ export default function Documents() {
               >
                 <LayoutGrid className="w-4 h-4" />
               </button>
+              <label className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 cursor-pointer ml-1">
+                <input
+                  type="checkbox"
+                  checked={showThumbnails}
+                  onChange={(e) => setShowThumbnails(e.target.checked)}
+                  className="rounded w-3.5 h-3.5"
+                />
+                Thumbnail
+              </label>
             </div>
           </div>
 
@@ -531,7 +542,15 @@ export default function Documents() {
                           onContextMenu={(e) => handleContextMenu(e, doc.id, 'document')}
                         >
                           <div className="col-span-5 flex items-center gap-2 min-w-0">
-                            <FileIcon mimeType={doc.mimeType} />
+                            {showThumbnails && isImageFile(doc.name) ? (
+                              <ImageThumbnail
+                                fetchBlob={() => documentsApi.getDocumentBlob(doc.id)}
+                                alt={doc.name}
+                                size="md"
+                              />
+                            ) : (
+                              <FileIcon mimeType={doc.mimeType} />
+                            )}
                             <span className="text-sm truncate text-gray-900 dark:text-white">{doc.name}</span>
                           </div>
                           <div className="col-span-2 text-sm text-gray-500 dark:text-gray-400 flex items-center">
@@ -595,7 +614,17 @@ export default function Documents() {
                               <Download className="w-3 h-3" />
                             </button>
                           </div>
-                          <FileIcon mimeType={doc.mimeType} large />
+                          {showThumbnails && isImageFile(doc.name) ? (
+                            <div className="mx-auto">
+                              <ImageThumbnail
+                                fetchBlob={() => documentsApi.getDocumentBlob(doc.id)}
+                                alt={doc.name}
+                                size="lg"
+                              />
+                            </div>
+                          ) : (
+                            <FileIcon mimeType={doc.mimeType} large />
+                          )}
                           <p className="text-sm text-gray-700 dark:text-gray-200 truncate mt-2" title={doc.name}>
                             {doc.name}
                           </p>
@@ -653,7 +682,8 @@ export default function Documents() {
             )}
           </div>
         </div>
-      </div>
+        }
+      />
 
       {/* Context Menu */}
       {contextMenu && (
